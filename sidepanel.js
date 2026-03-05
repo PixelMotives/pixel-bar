@@ -1,0 +1,898 @@
+"use strict";
+
+// ─── Chrome Tab Group Colors → CSS ──────────────────────────
+
+var GROUP_COLORS = {
+  grey:   { bg: "#dadce0", text: "#202124" },
+  blue:   { bg: "#8ab4f8", text: "#174ea6" },
+  red:    { bg: "#f28b82", text: "#a50e0e" },
+  yellow: { bg: "#fdd663", text: "#594300" },
+  green:  { bg: "#81c995", text: "#0d652d" },
+  pink:   { bg: "#ff8bcb", text: "#7c2950" },
+  purple: { bg: "#c58af9", text: "#4a148c" },
+  cyan:   { bg: "#78d9ec", text: "#0e4f5c" },
+  orange: { bg: "#fcad70", text: "#6b3205" }
+};
+
+var STORAGE_KEYS = {
+  customNames:       "pb_custom_names",
+  savedGroups:       "pb_saved_groups",
+  collapsedSections: "pb_collapsed_sections",
+  collapsedGroups:   "pb_collapsed_groups",
+  activeView:        "pb_active_view"
+};
+
+// ─── State ──────────────────────────────────────────────────
+
+var windowId = null;
+var customNames = {};
+var savedGroups = [];
+var collapsedSections = {};
+var collapsedGroups = {};
+var refreshTimer = null;
+var dragData = null;
+var activeView = "tabs";
+
+// ─── Init ───────────────────────────────────────────────────
+
+document.addEventListener("DOMContentLoaded", function() {
+  // Notify background script that the panel is open
+  chrome.runtime.connect({ name: "pixel-bar-panel" });
+
+  chrome.windows.getCurrent(function(win) {
+    windowId = win.id;
+    chrome.storage.local.get(
+      [STORAGE_KEYS.customNames, STORAGE_KEYS.savedGroups,
+       STORAGE_KEYS.collapsedSections, STORAGE_KEYS.collapsedGroups,
+       STORAGE_KEYS.activeView],
+      function(data) {
+        customNames       = data[STORAGE_KEYS.customNames] || {};
+        savedGroups       = data[STORAGE_KEYS.savedGroups] || [];
+        collapsedSections = data[STORAGE_KEYS.collapsedSections] || {};
+        collapsedGroups   = data[STORAGE_KEYS.collapsedGroups] || {};
+        activeView        = data[STORAGE_KEYS.activeView] || "tabs";
+        applySectionCollapseStates();
+        setupViewNav();
+        switchView(activeView);
+        refresh();
+        setupChromeListeners();
+        setupSectionToggles();
+      }
+    );
+  });
+});
+
+// ─── View Navigation ────────────────────────────────────────
+
+function setupViewNav() {
+  document.querySelectorAll(".view-tab").forEach(function(btn) {
+    btn.addEventListener("click", function() {
+      switchView(btn.getAttribute("data-view"));
+    });
+  });
+}
+
+function switchView(viewName) {
+  activeView = viewName;
+  chrome.storage.local.set(makeObj(STORAGE_KEYS.activeView, viewName));
+
+  // Update nav buttons
+  document.querySelectorAll(".view-tab").forEach(function(btn) {
+    btn.classList.toggle("active", btn.getAttribute("data-view") === viewName);
+  });
+
+  // Update view panels
+  document.querySelectorAll(".view").forEach(function(v) {
+    v.classList.remove("active");
+  });
+  var target = document.getElementById("view-" + viewName);
+  if (target) target.classList.add("active");
+
+  // Render the view content on switch
+  if (viewName === "bookmarks") {
+    renderBookmarks();
+  } else if (viewName === "history") {
+    renderRecentlyClosed();
+  }
+}
+
+// ─── Refresh ────────────────────────────────────────────────
+
+function scheduleRefresh() {
+  clearTimeout(refreshTimer);
+  refreshTimer = setTimeout(refresh, 80);
+}
+
+function refresh() {
+  chrome.tabs.query({ windowId: windowId }, function(tabs) {
+    chrome.tabGroups.query({ windowId: windowId }, function(groups) {
+      var pinnedTabs = [];
+      var groupedTabs = {};
+      var ungroupedTabs = [];
+
+      tabs.forEach(function(tab) {
+        if (tab.pinned) {
+          pinnedTabs.push(tab);
+        } else if (tab.groupId !== -1) {
+          if (!groupedTabs[tab.groupId]) groupedTabs[tab.groupId] = [];
+          groupedTabs[tab.groupId].push(tab);
+        } else {
+          ungroupedTabs.push(tab);
+        }
+      });
+
+      renderPinnedTabs(pinnedTabs);
+      renderTabGroups(groups, groupedTabs);
+      renderUngroupedTabs(ungroupedTabs);
+      renderSavedGroups();
+    });
+  });
+}
+
+// ─── Pinned Tabs ────────────────────────────────────────────
+
+function renderPinnedTabs(tabs) {
+  var container = document.getElementById("pinned-tabs");
+  container.innerHTML = "";
+  tabs.forEach(function(tab) {
+    var el = document.createElement("div");
+    el.className = "pinned-tab" + (tab.active ? " active" : "");
+    el.title = getTabDisplayName(tab);
+    el.setAttribute("data-tab-id", tab.id);
+    el.draggable = true;
+    el.innerHTML = faviconHTML(tab, true);
+    if (tab.audible) {
+      el.innerHTML += "<span class=\"audio-indicator\">&#128266;</span>";
+    }
+    el.addEventListener("click", function() { activateTab(tab.id); });
+    el.addEventListener("auxclick", function(e) {
+      if (e.button === 1) closeTab(tab.id);
+    });
+
+    // Drag-and-drop for pinned tab reordering
+    el.addEventListener("dragstart", function(e) {
+      dragData = { type: "pinned", tabId: tab.id, index: tab.index };
+      e.dataTransfer.effectAllowed = "move";
+      el.classList.add("dragging");
+    });
+    el.addEventListener("dragend", function() {
+      el.classList.remove("dragging");
+      clearDropIndicators();
+      dragData = null;
+    });
+    el.addEventListener("dragover", function(e) {
+      if (!dragData || dragData.type !== "pinned") return;
+      e.preventDefault();
+      e.dataTransfer.dropEffect = "move";
+      clearDropIndicators();
+      var rect = el.getBoundingClientRect();
+      var midX = rect.left + rect.width / 2;
+      if (e.clientX < midX) {
+        el.classList.add("drop-left");
+      } else {
+        el.classList.add("drop-right");
+      }
+    });
+    el.addEventListener("dragleave", function() { clearDropIndicators(); });
+    el.addEventListener("drop", function(e) {
+      e.preventDefault();
+      e.stopPropagation();
+      clearDropIndicators();
+      if (!dragData || dragData.type !== "pinned") return;
+      if (dragData.tabId === tab.id) return;
+      var rect = el.getBoundingClientRect();
+      var midX = rect.left + rect.width / 2;
+      var targetIndex = e.clientX < midX ? tab.index : tab.index + 1;
+      chrome.tabs.move(dragData.tabId, { index: targetIndex }, function() {
+        scheduleRefresh();
+      });
+    });
+
+    container.appendChild(el);
+  });
+}
+
+// ─── Tab Groups ─────────────────────────────────────────────
+
+function renderTabGroups(groups, groupedTabs) {
+  var container = document.getElementById("tab-groups");
+  container.innerHTML = "";
+
+  groups.forEach(function(group) {
+    var tabs = groupedTabs[group.id] || [];
+    var colorObj = GROUP_COLORS[group.color] || GROUP_COLORS.grey;
+    var isCollapsed = collapsedGroups[group.id] === true;
+
+    var groupEl = document.createElement("div");
+    groupEl.className = "tab-group" + (isCollapsed ? " collapsed" : "");
+    groupEl.setAttribute("data-group-id", group.id);
+
+    // Header
+    var header = document.createElement("div");
+    header.className = "group-header";
+    header.draggable = true;
+    header.setAttribute("data-group-id", group.id);
+    header.style.background = colorObj.bg;
+    header.style.color = colorObj.text;
+    header.innerHTML =
+      "<span class=\"group-collapse\">&#9660;</span>" +
+      "<span class=\"group-title\">" + escapeHTML(group.title || "Unnamed") + "</span>" +
+      "<span class=\"group-count\">" + tabs.length + "</span>" +
+      "<span class=\"group-actions\">" +
+        "<button class=\"group-action-btn group-save-btn\" title=\"Save group\">&#128190;</button>" +
+        "<button class=\"group-action-btn group-rename-btn\" title=\"Rename group\">&#9998;</button>" +
+        "<button class=\"group-action-btn group-close-btn\" title=\"Save &amp; close group\">&#10005;</button>" +
+      "</span>";
+
+    header.addEventListener("click", function(e) {
+      if (e.target.closest(".group-actions")) return;
+      toggleGroupCollapse(group.id, groupEl);
+    });
+
+    header.querySelector(".group-save-btn").addEventListener("click", function(e) {
+      e.stopPropagation();
+      saveTabGroup(group, tabs);
+    });
+
+    header.querySelector(".group-rename-btn").addEventListener("click", function(e) {
+      e.stopPropagation();
+      startGroupRename(group, header.querySelector(".group-title"));
+    });
+
+    header.querySelector(".group-close-btn").addEventListener("click", function(e) {
+      e.stopPropagation();
+      closeAndSaveGroup(group, tabs);
+    });
+
+    // Drag for group reorder
+    header.addEventListener("dragstart", function(e) {
+      dragData = { type: "group", groupId: group.id };
+      e.dataTransfer.effectAllowed = "move";
+      header.classList.add("dragging");
+    });
+    header.addEventListener("dragend", function() {
+      header.classList.remove("dragging");
+      clearDropIndicators();
+      dragData = null;
+    });
+    header.addEventListener("dragover", function(e) { handleGroupDragOver(e, header); });
+    header.addEventListener("dragleave", function() { clearDropIndicators(); });
+    header.addEventListener("drop", function(e) { handleGroupDrop(e, group); });
+
+    groupEl.appendChild(header);
+
+    // Tab list
+    var body = document.createElement("div");
+    body.className = "group-body tab-list";
+    body.setAttribute("data-group-id", group.id);
+    tabs.forEach(function(tab) {
+      body.appendChild(createTabElement(tab));
+    });
+
+    // Drop zone for tabs dragged into this group
+    body.addEventListener("dragover", function(e) { handleTabListDragOver(e, body); });
+    body.addEventListener("dragleave", function(e) {
+      if (!body.contains(e.relatedTarget)) {
+        body.classList.remove("drop-target");
+        clearDropIndicators();
+      }
+    });
+    body.addEventListener("drop", function(e) { handleTabListDrop(e, group.id); });
+
+    var bodyWrap = document.createElement("div");
+    bodyWrap.className = "group-body-wrap";
+    bodyWrap.appendChild(body);
+    groupEl.appendChild(bodyWrap);
+    container.appendChild(groupEl);
+  });
+}
+
+// ─── Ungrouped Tabs ─────────────────────────────────────────
+
+function renderUngroupedTabs(tabs) {
+  var section = document.getElementById("ungrouped-tabs");
+  var body = section.querySelector(".section-body");
+  var count = section.querySelector(".section-count");
+  body.innerHTML = "";
+  count.textContent = tabs.length;
+
+  if (tabs.length === 0) {
+    body.innerHTML = "<div class=\"empty-message\">No ungrouped tabs</div>";
+    return;
+  }
+
+  tabs.forEach(function(tab) {
+    body.appendChild(createTabElement(tab));
+  });
+
+  // Drop zone for ungrouping
+  body.addEventListener("dragover", function(e) { handleTabListDragOver(e, body); });
+  body.addEventListener("dragleave", function(e) {
+    if (!body.contains(e.relatedTarget)) {
+      body.classList.remove("drop-target");
+      clearDropIndicators();
+    }
+  });
+  body.addEventListener("drop", function(e) { handleTabListDrop(e, -1); });
+}
+
+// ─── Create Tab Element ─────────────────────────────────────
+
+function createTabElement(tab) {
+  var el = document.createElement("div");
+  el.className = "tab-item" + (tab.active ? " active" : "");
+  el.setAttribute("data-tab-id", tab.id);
+  el.draggable = true;
+
+  var title = getTabDisplayName(tab);
+
+  el.innerHTML =
+    faviconHTML(tab, false) +
+    "<span class=\"tab-title\" title=\"" + escapeAttr(tab.title || "") + "\">" +
+      escapeHTML(title) +
+    "</span>" +
+    (tab.audible ? "<span class=\"tab-audio\">&#128266;</span>" : "") +
+    "<button class=\"tab-close\" title=\"Close tab\">&times;</button>";
+
+  el.addEventListener("click", function(e) {
+    if (e.target.classList.contains("tab-close")) return;
+    activateTab(tab.id);
+  });
+
+  el.querySelector(".tab-close").addEventListener("click", function(e) {
+    e.stopPropagation();
+    closeTab(tab.id);
+  });
+
+  // Double-click to rename
+  el.querySelector(".tab-title").addEventListener("dblclick", function(e) {
+    e.stopPropagation();
+    startRename(tab, el.querySelector(".tab-title"));
+  });
+
+  // Drag
+  el.addEventListener("dragstart", function(e) {
+    dragData = { type: "tab", tabId: tab.id, groupId: tab.groupId };
+    e.dataTransfer.effectAllowed = "move";
+    el.classList.add("dragging");
+  });
+  el.addEventListener("dragend", function() {
+    el.classList.remove("dragging");
+    clearDropIndicators();
+    dragData = null;
+  });
+  el.addEventListener("dragover", function(e) { handleTabDragOver(e, el); });
+  el.addEventListener("dragleave", function() { clearDropIndicators(); });
+  el.addEventListener("drop", function(e) { handleTabDrop(e, tab); });
+
+  return el;
+}
+
+// ─── Saved Groups ───────────────────────────────────────────
+
+function renderSavedGroups() {
+  var section = document.getElementById("saved-groups");
+  var body = section.querySelector(".section-body");
+  var count = section.querySelector(".section-count");
+  body.innerHTML = "";
+  count.textContent = savedGroups.length || "";
+
+  if (savedGroups.length === 0) {
+    body.innerHTML = "<div class=\"empty-message\">Save a tab group using the &#128190; icon</div>";
+    return;
+  }
+
+  savedGroups.forEach(function(sg, index) {
+    var colorObj = GROUP_COLORS[sg.color] || GROUP_COLORS.grey;
+    var el = document.createElement("div");
+    el.className = "saved-group-item";
+    el.innerHTML =
+      "<span class=\"saved-group-dot\" style=\"background:" + colorObj.bg + "\"></span>" +
+      "<span class=\"saved-group-name\">" + escapeHTML(sg.name || "Unnamed") + "</span>" +
+      "<span class=\"saved-group-tab-count\">" + sg.urls.length + " tabs</span>" +
+      "<span class=\"saved-group-actions\">" +
+        "<button class=\"restore-btn\" title=\"Restore group\">&#8634;</button>" +
+        "<button class=\"delete-btn\" title=\"Delete\">&#10005;</button>" +
+      "</span>";
+
+    el.querySelector(".restore-btn").addEventListener("click", function(e) {
+      e.stopPropagation();
+      restoreSavedGroup(sg);
+    });
+    el.querySelector(".delete-btn").addEventListener("click", function(e) {
+      e.stopPropagation();
+      deleteSavedGroup(index);
+    });
+    el.addEventListener("click", function() {
+      restoreSavedGroup(sg);
+    });
+
+    body.appendChild(el);
+  });
+}
+
+function saveTabGroup(group, tabs) {
+  var urls = tabs.map(function(t) { return t.url; });
+  // Don't duplicate if already saved with same name+color
+  var alreadySaved = savedGroups.some(function(sg) {
+    return sg.name === (group.title || "Unnamed") && sg.color === (group.color || "grey");
+  });
+  if (alreadySaved) return;
+
+  savedGroups.push({
+    name: group.title || "Unnamed",
+    color: group.color || "grey",
+    urls: urls,
+    savedAt: Date.now()
+  });
+  chrome.storage.local.set(makeObj(STORAGE_KEYS.savedGroups, savedGroups));
+  renderSavedGroups();
+}
+
+function restoreSavedGroup(sg) {
+  // Check if a group with the same name and color already exists
+  chrome.tabGroups.query({ windowId: windowId }, function(groups) {
+    var existing = null;
+    for (var i = 0; i < groups.length; i++) {
+      if (groups[i].title === sg.name && groups[i].color === sg.color) {
+        existing = groups[i];
+        break;
+      }
+    }
+
+    if (existing) {
+      // Group already open — expand it and activate its first tab
+      chrome.tabGroups.update(existing.id, { collapsed: false });
+      chrome.tabs.query({ groupId: existing.id }, function(tabs) {
+        if (tabs.length > 0) {
+          chrome.tabs.update(tabs[0].id, { active: true });
+        }
+      });
+      collapsedGroups[existing.id] = false;
+      chrome.storage.local.set(makeObj(STORAGE_KEYS.collapsedGroups, collapsedGroups));
+      scheduleRefresh();
+      return;
+    }
+
+    // Not open — create the tabs and group them
+    var tabIds = [];
+    var remaining = sg.urls.length;
+    sg.urls.forEach(function(url) {
+      chrome.tabs.create({ url: url, active: false }, function(tab) {
+        tabIds.push(tab.id);
+        remaining--;
+        if (remaining === 0) {
+          chrome.tabs.group({ tabIds: tabIds }, function(groupId) {
+            chrome.tabGroups.update(groupId, {
+              title: sg.name,
+              color: sg.color
+            });
+          });
+        }
+      });
+    });
+  });
+}
+
+function deleteSavedGroup(index) {
+  savedGroups.splice(index, 1);
+  chrome.storage.local.set(makeObj(STORAGE_KEYS.savedGroups, savedGroups));
+  renderSavedGroups();
+}
+
+// ─── Bookmarks ──────────────────────────────────────────────
+
+function renderBookmarks() {
+  var container = document.getElementById("bookmarks-content");
+  container.innerHTML = "";
+
+  // Get Bookmarks Bar (id "1")
+  chrome.bookmarks.getSubTree("1", function(results) {
+    if (!results || !results[0]) return;
+    var children = results[0].children || [];
+    renderBookmarkNodes(children, container, 0);
+  });
+}
+
+function renderBookmarkNodes(nodes, container, depth) {
+  nodes.forEach(function(node) {
+    if (node.url) {
+      var el = document.createElement("div");
+      el.className = "bookmark-item";
+      if (depth > 0) el.style.paddingLeft = (22 + depth * 14) + "px";
+      el.innerHTML =
+        faviconHTMLFromUrl(node.url) +
+        "<span class=\"bookmark-title\">" + escapeHTML(node.title || node.url) + "</span>";
+      el.addEventListener("click", function() {
+        chrome.tabs.create({ url: node.url });
+      });
+      container.appendChild(el);
+    } else if (node.children) {
+      var folder = document.createElement("div");
+      folder.className = "bookmark-folder";
+      if (depth > 0) folder.style.paddingLeft = (depth * 14) + "px";
+
+      var header = document.createElement("div");
+      header.className = "bookmark-folder-header";
+      header.innerHTML =
+        "<span class=\"bookmark-folder-icon\">&#128193;</span>" +
+        "<span>" + escapeHTML(node.title || "Folder") + "</span>";
+
+      var childContainer = document.createElement("div");
+      childContainer.className = "bookmark-folder-children";
+
+      header.addEventListener("click", function() {
+        folder.classList.toggle("collapsed");
+      });
+
+      folder.appendChild(header);
+      folder.appendChild(childContainer);
+      container.appendChild(folder);
+
+      renderBookmarkNodes(node.children, childContainer, depth + 1);
+    }
+  });
+}
+
+// ─── Recently Closed ────────────────────────────────────────
+
+function renderRecentlyClosed() {
+  var container = document.getElementById("history-content");
+  container.innerHTML = "";
+
+  chrome.sessions.getRecentlyClosed({ maxResults: 25 }, function(sessions) {
+    var items = [];
+    (sessions || []).forEach(function(session) {
+      if (session.tab) {
+        items.push(session.tab);
+      } else if (session.window && session.window.tabs) {
+        session.window.tabs.forEach(function(t) { items.push(t); });
+      }
+    });
+
+    if (items.length === 0) {
+      container.innerHTML = "<div class=\"empty-message\">No recently closed tabs</div>";
+      return;
+    }
+
+    items.forEach(function(tab) {
+      var el = document.createElement("div");
+      el.className = "recent-item";
+      el.innerHTML =
+        faviconHTMLFromUrl(tab.url || "") +
+        "<span class=\"recent-title\" title=\"" + escapeAttr(tab.url || "") + "\">" +
+          escapeHTML(tab.title || tab.url || "Untitled") +
+        "</span>";
+      el.addEventListener("click", function() {
+        if (tab.sessionId) {
+          chrome.sessions.restore(tab.sessionId);
+        } else {
+          chrome.tabs.create({ url: tab.url });
+        }
+      });
+      container.appendChild(el);
+    });
+  });
+}
+
+// ─── Drag & Drop — Tabs ────────────────────────────────────
+
+function handleTabDragOver(e, el) {
+  if (!dragData || dragData.type !== "tab") return;
+  e.preventDefault();
+  e.dataTransfer.dropEffect = "move";
+  clearDropIndicators();
+  var rect = el.getBoundingClientRect();
+  var midY = rect.top + rect.height / 2;
+  if (e.clientY < midY) {
+    el.classList.add("drop-above");
+  } else {
+    el.classList.add("drop-below");
+  }
+}
+
+function handleTabDrop(e, targetTab) {
+  e.preventDefault();
+  e.stopPropagation();
+  clearDropIndicators();
+  if (!dragData || dragData.type !== "tab") return;
+  if (dragData.tabId === targetTab.id) return;
+
+  var tabId = dragData.tabId;
+  var rect = e.currentTarget.getBoundingClientRect();
+  var midY = rect.top + rect.height / 2;
+  var insertBefore = e.clientY < midY;
+  var targetIndex = insertBefore ? targetTab.index : targetTab.index + 1;
+
+  chrome.tabs.move(tabId, { index: targetIndex }, function() {
+    if (targetTab.groupId !== -1) {
+      chrome.tabs.group({ tabIds: [tabId], groupId: targetTab.groupId }, function() {
+        scheduleRefresh();
+      });
+    } else if (dragData.groupId !== -1) {
+      chrome.tabs.ungroup([tabId], function() {
+        scheduleRefresh();
+      });
+    } else {
+      scheduleRefresh();
+    }
+  });
+}
+
+function handleTabListDragOver(e, listEl) {
+  if (!dragData || dragData.type !== "tab") return;
+  e.preventDefault();
+  e.dataTransfer.dropEffect = "move";
+  if (e.target === listEl || e.target.classList.contains("empty-message")) {
+    listEl.classList.add("drop-target");
+  }
+}
+
+function handleTabListDrop(e, targetGroupId) {
+  e.preventDefault();
+  clearDropIndicators();
+  if (!dragData || dragData.type !== "tab") return;
+
+  var tabId = dragData.tabId;
+
+  if (targetGroupId === -1) {
+    chrome.tabs.ungroup([tabId], function() { scheduleRefresh(); });
+  } else {
+    chrome.tabs.group({ tabIds: [tabId], groupId: targetGroupId }, function() {
+      scheduleRefresh();
+    });
+  }
+}
+
+// ─── Drag & Drop — Groups ──────────────────────────────────
+
+function handleGroupDragOver(e, header) {
+  if (!dragData || dragData.type !== "group") return;
+  e.preventDefault();
+  e.dataTransfer.dropEffect = "move";
+  clearDropIndicators();
+  var rect = header.getBoundingClientRect();
+  var midY = rect.top + rect.height / 2;
+  if (e.clientY < midY) {
+    header.classList.add("drop-above");
+  } else {
+    header.classList.add("drop-below");
+  }
+}
+
+function handleGroupDrop(e, targetGroup) {
+  e.preventDefault();
+  e.stopPropagation();
+  clearDropIndicators();
+  if (!dragData || dragData.type !== "group") return;
+  if (dragData.groupId === targetGroup.id) return;
+
+  chrome.tabGroups.move(dragData.groupId, { index: -1 }, function() {
+    scheduleRefresh();
+  });
+}
+
+function clearDropIndicators() {
+  document.querySelectorAll(".drop-above, .drop-below, .drop-target, .drop-left, .drop-right").forEach(function(el) {
+    el.classList.remove("drop-above", "drop-below", "drop-target", "drop-left", "drop-right");
+  });
+}
+
+// ─── Tab Actions ────────────────────────────────────────────
+
+function activateTab(tabId) {
+  chrome.tabs.update(tabId, { active: true });
+}
+
+function closeTab(tabId) {
+  chrome.tabs.remove(tabId);
+}
+
+// ─── Rename ─────────────────────────────────────────────────
+
+function startRename(tab, titleEl) {
+  var container = document.getElementById("rename-input-container");
+  var input = document.getElementById("rename-input");
+  var rect = titleEl.getBoundingClientRect();
+
+  container.classList.remove("hidden");
+  container.style.top = rect.top + "px";
+  container.style.left = rect.left + "px";
+  container.style.width = rect.width + "px";
+
+  input.value = getTabDisplayName(tab);
+  input.focus();
+  input.select();
+
+  function finish(save) {
+    container.classList.add("hidden");
+    input.removeEventListener("keydown", onKey);
+    input.removeEventListener("blur", onBlur);
+    if (save) {
+      var newName = input.value.trim();
+      if (newName && newName !== tab.title) {
+        customNames[tab.url] = newName;
+      } else {
+        delete customNames[tab.url];
+      }
+      chrome.storage.local.set(makeObj(STORAGE_KEYS.customNames, customNames));
+      scheduleRefresh();
+    }
+  }
+
+  function onKey(e) {
+    if (e.key === "Enter") { finish(true); }
+    else if (e.key === "Escape") { finish(false); }
+  }
+
+  function onBlur() { finish(true); }
+
+  input.addEventListener("keydown", onKey);
+  input.addEventListener("blur", onBlur);
+}
+
+function getTabDisplayName(tab) {
+  return customNames[tab.url] || tab.title || tab.url || "New Tab";
+}
+
+// ─── Group Management ───────────────────────────────────────
+
+function startGroupRename(group, titleEl) {
+  var container = document.getElementById("rename-input-container");
+  var input = document.getElementById("rename-input");
+  var rect = titleEl.getBoundingClientRect();
+
+  container.classList.remove("hidden");
+  container.style.top = rect.top + "px";
+  container.style.left = rect.left + "px";
+  container.style.width = rect.width + "px";
+
+  input.value = group.title || "";
+  input.focus();
+  input.select();
+
+  function finish(save) {
+    container.classList.add("hidden");
+    input.removeEventListener("keydown", onKey);
+    input.removeEventListener("blur", onBlur);
+    if (save) {
+      var newName = input.value.trim();
+      chrome.tabGroups.update(group.id, { title: newName });
+      scheduleRefresh();
+    }
+  }
+
+  function onKey(e) {
+    if (e.key === "Enter") { finish(true); }
+    else if (e.key === "Escape") { finish(false); }
+  }
+
+  function onBlur() { finish(true); }
+
+  input.addEventListener("keydown", onKey);
+  input.addEventListener("blur", onBlur);
+}
+
+function closeAndSaveGroup(group, tabs) {
+  // Save the group first (if not already saved with same name+color)
+  var alreadySaved = savedGroups.some(function(sg) {
+    return sg.name === (group.title || "Unnamed") && sg.color === (group.color || "grey");
+  });
+  if (!alreadySaved) {
+    var urls = tabs.map(function(t) { return t.url; });
+    savedGroups.push({
+      name: group.title || "Unnamed",
+      color: group.color || "grey",
+      urls: urls,
+      savedAt: Date.now()
+    });
+    chrome.storage.local.set(makeObj(STORAGE_KEYS.savedGroups, savedGroups));
+  }
+
+  // Close all tabs in the group
+  var tabIds = tabs.map(function(t) { return t.id; });
+  if (tabIds.length > 0) {
+    chrome.tabs.remove(tabIds);
+  }
+}
+
+// ─── Section Toggles ───────────────────────────────────────
+
+function setupSectionToggles() {
+  document.querySelectorAll(".section-header[data-section]").forEach(function(header) {
+    header.addEventListener("click", function() {
+      var section = header.closest(".section");
+      var key = header.getAttribute("data-section");
+      section.classList.toggle("collapsed");
+      collapsedSections[key] = section.classList.contains("collapsed");
+      chrome.storage.local.set(makeObj(STORAGE_KEYS.collapsedSections, collapsedSections));
+    });
+  });
+}
+
+function applySectionCollapseStates() {
+  Object.keys(collapsedSections).forEach(function(key) {
+    if (collapsedSections[key]) {
+      var header = document.querySelector("[data-section=\"" + key + "\"]");
+      if (header) header.closest(".section").classList.add("collapsed");
+    }
+  });
+}
+
+function toggleGroupCollapse(groupId, groupEl) {
+  groupEl.classList.toggle("collapsed");
+  collapsedGroups[groupId] = groupEl.classList.contains("collapsed");
+  chrome.storage.local.set(makeObj(STORAGE_KEYS.collapsedGroups, collapsedGroups));
+}
+
+// ─── Chrome Listeners ──────────────────────────────────────
+
+function setupChromeListeners() {
+  chrome.tabs.onCreated.addListener(scheduleRefresh);
+  chrome.tabs.onRemoved.addListener(function() {
+    scheduleRefresh();
+    if (activeView === "history") {
+      setTimeout(renderRecentlyClosed, 200);
+    }
+  });
+  chrome.tabs.onUpdated.addListener(scheduleRefresh);
+  chrome.tabs.onMoved.addListener(scheduleRefresh);
+  chrome.tabs.onActivated.addListener(scheduleRefresh);
+  chrome.tabs.onAttached.addListener(scheduleRefresh);
+  chrome.tabs.onDetached.addListener(scheduleRefresh);
+
+  chrome.tabGroups.onCreated.addListener(scheduleRefresh);
+  chrome.tabGroups.onRemoved.addListener(scheduleRefresh);
+  chrome.tabGroups.onUpdated.addListener(scheduleRefresh);
+  chrome.tabGroups.onMoved.addListener(scheduleRefresh);
+
+  chrome.bookmarks.onCreated.addListener(function() {
+    if (activeView === "bookmarks") renderBookmarks();
+  });
+  chrome.bookmarks.onRemoved.addListener(function() {
+    if (activeView === "bookmarks") renderBookmarks();
+  });
+  chrome.bookmarks.onChanged.addListener(function() {
+    if (activeView === "bookmarks") renderBookmarks();
+  });
+}
+
+// ─── Helpers ────────────────────────────────────────────────
+
+function faviconHTML(tab, isPinned) {
+  if (tab.favIconUrl && tab.favIconUrl.indexOf("chrome://") !== 0) {
+    return "<img class=\"tab-favicon\" src=\"" + escapeAttr(tab.favIconUrl) + "\" onerror=\"this.outerHTML=defaultFaviconHTML()\" />";
+  }
+  return defaultFaviconHTML();
+}
+
+function faviconHTMLFromUrl(url) {
+  if (url && url.indexOf("chrome://") !== 0 && url.indexOf("about:") !== 0) {
+    var domain = "";
+    try { domain = new URL(url).hostname; } catch(e) {}
+    if (domain) {
+      return "<img class=\"bookmark-favicon\" src=\"https://www.google.com/s2/favicons?domain=" + encodeURIComponent(domain) + "&sz=16\" onerror=\"this.outerHTML=defaultFaviconHTML()\" />";
+    }
+  }
+  return defaultFaviconHTML();
+}
+
+function defaultFaviconHTML() {
+  return "<span class=\"default-favicon\">&#9679;</span>";
+}
+
+function escapeHTML(str) {
+  var div = document.createElement("div");
+  div.textContent = str || "";
+  return div.innerHTML;
+}
+
+function escapeAttr(str) {
+  return (str || "").replace(/&/g, "&amp;").replace(/"/g, "&quot;").replace(/</g, "&lt;").replace(/>/g, "&gt;");
+}
+
+function makeObj(key, value) {
+  var obj = {};
+  obj[key] = value;
+  return obj;
+}

@@ -1,0 +1,60 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Pixel Bar</title>
+  <link rel="stylesheet" href="sidepanel.css" />
+</head>
+<body>
+  <div id="sidebar">
+    <div id="pinned-tabs"></div>
+
+    <nav id="view-nav">
+      <button class="view-tab active" data-view="tabs">Tabs</button>
+      <button class="view-tab" data-view="bookmarks">Bookmarks</button>
+      <button class="view-tab" data-view="history">History</button>
+    </nav>
+
+    <div id="view-tabs" class="view active">
+      <div id="tab-groups"></div>
+
+      <div id="ungrouped-tabs" class="section">
+        <div class="section-header" data-section="ungrouped">
+          <span class="section-collapse">&#9660;</span>
+          <span class="section-title">Ungrouped Tabs</span>
+          <span class="section-count"></span>
+        </div>
+        <div class="section-body-wrap">
+          <div class="section-body tab-list"></div>
+        </div>
+      </div>
+
+      <div id="saved-groups" class="section">
+        <div class="section-header" data-section="saved">
+          <span class="section-collapse">&#9660;</span>
+          <span class="section-title">Saved Groups</span>
+          <span class="section-count"></span>
+        </div>
+        <div class="section-body-wrap">
+          <div class="section-body"></div>
+        </div>
+      </div>
+    </div>
+
+    <div id="view-bookmarks" class="view">
+      <div id="bookmarks-content"></div>
+    </div>
+
+    <div id="view-history" class="view">
+      <div id="history-content"></div>
+    </div>
+  </div>
+
+  <div id="rename-input-container" class="hidden">
+    <input id="rename-input" type="text" />
+  </div>
+
+  <script src="sidepanel.js"></script>
+</body>
+</html>
