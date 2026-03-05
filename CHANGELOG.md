@@ -4,6 +4,17 @@ All notable changes to Pixel Bar will be documented in this file.
 
 The format is based on [Keep a Changelog](https://keepachangelog.com/), and this project adheres to [Semantic Versioning](https://semver.org/).
 
+## [0.2.0] - 2026-03-05
+
+### Added
+- Multi-tab selection with Cmd/Ctrl+click (toggle) and Shift+click (range)
+- Tab context menu (right-click) with New Tab Below, Add to Group, Move to New Window, Reload, Duplicate, Pin/Unpin, Mute/Unmute, Close, Close Other Tabs
+- Add to Group submenu listing New Group and all existing groups with color indicators
+- Tab group context menu (right-click group header) with inline rename, color picker, New Tab in Group, Move Group to New Window, Save Group, Close Group, Ungroup, Delete Group
+- Creating a new group automatically opens the group context menu with name input focused
+- Bookmark folder collapse arrows matching the style used in tab groups and sections
+- Collapse All button in the Bookmarks view toolbar
+
 ## [0.1.0] - 2026-03-05
 
 ### Added

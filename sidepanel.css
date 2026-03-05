@@ -475,6 +475,31 @@ body {
   color: #f38ba8;
 }
 
+/* ─── Bookmarks Toolbar ─────────────────────────────────── */
+
+#bookmarks-toolbar {
+  display: flex;
+  padding: 8px 12px;
+  border-bottom: 1px solid #313244;
+}
+
+#bookmarks-collapse-all {
+  background: none;
+  border: 1px solid #45475a;
+  color: #a6adc8;
+  font-size: 11px;
+  font-family: inherit;
+  padding: 4px 10px;
+  border-radius: 4px;
+  cursor: pointer;
+  transition: background 0.15s, color 0.15s;
+}
+
+#bookmarks-collapse-all:hover {
+  background: #313244;
+  color: #cdd6f4;
+}
+
 /* ─── Bookmarks ──────────────────────────────────────────── */
 
 .bookmark-item {
@@ -520,6 +545,18 @@ body {
 
 .bookmark-folder-header:hover {
   color: #cdd6f4;
+}
+
+.bookmark-folder-arrow {
+  font-size: 8px;
+  width: 12px;
+  text-align: center;
+  transition: transform 0.2s;
+  flex-shrink: 0;
+}
+
+.bookmark-folder.collapsed .bookmark-folder-arrow {
+  transform: rotate(-90deg);
 }
 
 .bookmark-folder-icon {
@@ -618,4 +655,155 @@ body {
   width: 20px;
   height: 20px;
   font-size: 10px;
+}
+
+/* ─── Multi-Select ──────────────────────────────────────── */
+
+.tab-item.selected {
+  background: rgba(137, 180, 250, 0.15);
+}
+
+.tab-item.selected::after {
+  content: "";
+  position: absolute;
+  left: 0;
+  top: 0;
+  bottom: 0;
+  width: 3px;
+  background: #89b4fa;
+  border-radius: 0 2px 2px 0;
+}
+
+/* ─── Context Menu ──────────────────────────────────────── */
+
+#context-menu,
+#group-context-menu {
+  position: fixed;
+  z-index: 200;
+  background: #313244;
+  border: 1px solid #45475a;
+  border-radius: 8px;
+  padding: 4px 0;
+  min-width: 200px;
+  box-shadow: 0 8px 24px rgba(0, 0, 0, 0.4);
+  font-size: 13px;
+}
+
+#context-menu.hidden,
+#group-context-menu.hidden {
+  display: none;
+}
+
+.ctx-item {
+  padding: 7px 14px;
+  cursor: pointer;
+  color: #cdd6f4;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  position: relative;
+  white-space: nowrap;
+}
+
+.ctx-item:hover {
+  background: #45475a;
+}
+
+.ctx-item.ctx-danger:hover {
+  background: rgba(243, 139, 168, 0.15);
+  color: #f38ba8;
+}
+
+.ctx-separator {
+  height: 1px;
+  background: #45475a;
+  margin: 4px 0;
+}
+
+.ctx-arrow {
+  font-size: 8px;
+  color: #6c7086;
+  margin-left: 12px;
+  transition: transform 0.2s;
+}
+
+.ctx-arrow.expanded {
+  transform: rotate(90deg);
+}
+
+.ctx-expand-trigger {
+  cursor: pointer;
+}
+
+.ctx-expand-body {
+  padding: 0;
+  overflow: hidden;
+}
+
+.ctx-expand-body.hidden {
+  display: none;
+}
+
+.ctx-expand-body .ctx-item {
+  padding: 7px 14px 7px 28px;
+  justify-content: flex-start;
+}
+
+.ctx-group-dot {
+  width: 8px;
+  height: 8px;
+  border-radius: 2px;
+  flex-shrink: 0;
+  margin-right: 8px;
+}
+
+/* ─── Group Context Menu ────────────────────────────────── */
+
+.ctx-group-name-row {
+  padding: 8px 10px 4px;
+}
+
+.ctx-group-name-input {
+  width: 100%;
+  background: #1e1e2e;
+  border: 1px solid #585b70;
+  border-radius: 6px;
+  color: #cdd6f4;
+  font-size: 13px;
+  font-family: inherit;
+  padding: 6px 10px;
+  outline: none;
+}
+
+.ctx-group-name-input:focus {
+  border-color: #89b4fa;
+}
+
+.ctx-group-name-input::placeholder {
+  color: #6c7086;
+}
+
+.ctx-color-row {
+  display: flex;
+  gap: 6px;
+  padding: 6px 10px 4px;
+  align-items: center;
+}
+
+.ctx-color-swatch {
+  width: 20px;
+  height: 20px;
+  border-radius: 50%;
+  cursor: pointer;
+  border: 2px solid transparent;
+  transition: border-color 0.15s, transform 0.1s;
+  flex-shrink: 0;
+}
+
+.ctx-color-swatch:hover {
+  transform: scale(1.15);
+}
+
+.ctx-color-swatch.active {
+  border-color: #cdd6f4;
 }

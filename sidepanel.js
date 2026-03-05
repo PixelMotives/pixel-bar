@@ -53,6 +53,9 @@ document.addEventListener("DOMContentLoaded", function() {
         activeView        = data[STORAGE_KEYS.activeView] || "tabs";
         applySectionCollapseStates();
         setupViewNav();
+        setupBookmarksToolbar();
+        setupContextMenu();
+        setupGroupContextMenu();
         switchView(activeView);
         refresh();
         setupChromeListeners();
@@ -106,6 +109,11 @@ function scheduleRefresh() {
 function refresh() {
   chrome.tabs.query({ windowId: windowId }, function(tabs) {
     chrome.tabGroups.query({ windowId: windowId }, function(groups) {
+      // Prune selected IDs that no longer exist
+      var currentIds = tabs.map(function(t) { return t.id; });
+      selectedTabIds = selectedTabIds.filter(function(id) {
+        return currentIds.indexOf(id) !== -1;
+      });
       var pinnedTabs = [];
       var groupedTabs = {};
       var ungroupedTabs = [];
@@ -125,6 +133,7 @@ function refresh() {
       renderTabGroups(groups, groupedTabs);
       renderUngroupedTabs(ungroupedTabs);
       renderSavedGroups();
+      updateSelectionVisuals();
     });
   });
 }
@@ -227,6 +236,10 @@ function renderTabGroups(groups, groupedTabs) {
     header.addEventListener("click", function(e) {
       if (e.target.closest(".group-actions")) return;
       toggleGroupCollapse(group.id, groupEl);
+    });
+
+    header.addEventListener("contextmenu", function(e) {
+      showGroupContextMenu(e, group, tabs);
     });
 
     header.querySelector(".group-save-btn").addEventListener("click", function(e) {
@@ -335,8 +348,11 @@ function createTabElement(tab) {
     "<button class=\"tab-close\" title=\"Close tab\">&times;</button>";
 
   el.addEventListener("click", function(e) {
-    if (e.target.classList.contains("tab-close")) return;
-    activateTab(tab.id);
+    handleTabClick(e, tab);
+  });
+
+  el.addEventListener("contextmenu", function(e) {
+    showContextMenu(e, tab);
   });
 
   el.querySelector(".tab-close").addEventListener("click", function(e) {
@@ -480,6 +496,469 @@ function deleteSavedGroup(index) {
   renderSavedGroups();
 }
 
+// ─── Multi-Select & Context Menu ────────────────────────────
+
+var selectedTabIds = [];
+var lastClickedTabId = null;
+
+function getSelectedTabIds() {
+  return selectedTabIds.length > 0 ? selectedTabIds.slice() : [];
+}
+
+function clearSelection() {
+  selectedTabIds = [];
+  lastClickedTabId = null;
+  document.querySelectorAll(".tab-item.selected").forEach(function(el) {
+    el.classList.remove("selected");
+  });
+}
+
+function handleTabClick(e, tab) {
+  if (e.target.classList.contains("tab-close")) return;
+
+  var metaKey = e.metaKey || e.ctrlKey;
+  var shiftKey = e.shiftKey;
+
+  if (metaKey) {
+    // Toggle selection
+    var idx = selectedTabIds.indexOf(tab.id);
+    if (idx === -1) {
+      selectedTabIds.push(tab.id);
+    } else {
+      selectedTabIds.splice(idx, 1);
+    }
+    lastClickedTabId = tab.id;
+    updateSelectionVisuals();
+  } else if (shiftKey && lastClickedTabId !== null) {
+    // Range select
+    var allItems = Array.from(document.querySelectorAll("#view-tabs .tab-item[data-tab-id]"));
+    var startIdx = -1, endIdx = -1;
+    for (var i = 0; i < allItems.length; i++) {
+      var itemId = parseInt(allItems[i].getAttribute("data-tab-id"), 10);
+      if (itemId === lastClickedTabId) startIdx = i;
+      if (itemId === tab.id) endIdx = i;
+    }
+    if (startIdx !== -1 && endIdx !== -1) {
+      var lo = Math.min(startIdx, endIdx);
+      var hi = Math.max(startIdx, endIdx);
+      selectedTabIds = [];
+      for (var j = lo; j <= hi; j++) {
+        selectedTabIds.push(parseInt(allItems[j].getAttribute("data-tab-id"), 10));
+      }
+    }
+    updateSelectionVisuals();
+  } else {
+    // Normal click — activate tab, clear selection
+    clearSelection();
+    lastClickedTabId = tab.id;
+    activateTab(tab.id);
+  }
+}
+
+function updateSelectionVisuals() {
+  document.querySelectorAll(".tab-item[data-tab-id]").forEach(function(el) {
+    var id = parseInt(el.getAttribute("data-tab-id"), 10);
+    el.classList.toggle("selected", selectedTabIds.indexOf(id) !== -1);
+  });
+}
+
+function setupContextMenu() {
+  var menu = document.getElementById("context-menu");
+
+  // Close menu on outside click
+  document.addEventListener("click", function() {
+    menu.classList.add("hidden");
+  });
+
+  // Prevent context menu from closing itself
+  menu.addEventListener("click", function(e) {
+    e.stopPropagation();
+  });
+
+  // Close on Escape
+  document.addEventListener("keydown", function(e) {
+    if (e.key === "Escape") {
+      menu.classList.add("hidden");
+      document.getElementById("group-context-menu").classList.add("hidden");
+      groupContextTarget = null;
+    }
+  });
+
+  // Action handlers
+  menu.querySelectorAll(".ctx-item[data-action]").forEach(function(item) {
+    item.addEventListener("click", function() {
+      var action = item.getAttribute("data-action");
+      handleContextAction(action);
+      menu.classList.add("hidden");
+    });
+  });
+}
+
+function showContextMenu(e, tab) {
+  e.preventDefault();
+  e.stopPropagation();
+
+  // Close group context menu if open
+  document.getElementById("group-context-menu").classList.add("hidden");
+  groupContextTarget = null;
+
+  // If right-clicked tab isn't in selection, select only that tab
+  if (selectedTabIds.indexOf(tab.id) === -1) {
+    selectedTabIds = [tab.id];
+    lastClickedTabId = tab.id;
+    updateSelectionVisuals();
+  }
+
+  var menu = document.getElementById("context-menu");
+  var groupList = document.getElementById("ctx-group-list");
+  var groupArrow = document.getElementById("ctx-group-arrow");
+  var groupTrigger = document.getElementById("ctx-add-to-group");
+
+  // Reset expand state
+  groupList.classList.add("hidden");
+  groupArrow.classList.remove("expanded");
+
+  // Update pin label
+  var pinItem = menu.querySelector("[data-action=\"pin\"]");
+  chrome.tabs.get(tab.id, function(t) {
+    pinItem.textContent = t.pinned ? "Unpin" : "Pin";
+  });
+
+  // Update mute label
+  var muteItem = menu.querySelector("[data-action=\"mute\"]");
+  chrome.tabs.get(tab.id, function(t) {
+    muteItem.textContent = t.mutedInfo && t.mutedInfo.muted ? "Unmute Site" : "Mute Site";
+  });
+
+  // Build group list
+  groupList.innerHTML = "";
+  chrome.tabGroups.query({ windowId: windowId }, function(groups) {
+    var newGroupItem = document.createElement("div");
+    newGroupItem.className = "ctx-item";
+    newGroupItem.textContent = "New Group";
+    newGroupItem.addEventListener("click", function(ev) {
+      ev.stopPropagation();
+      addSelectionToNewGroup();
+      menu.classList.add("hidden");
+    });
+    groupList.appendChild(newGroupItem);
+
+    if (groups.length > 0) {
+      var sep = document.createElement("div");
+      sep.className = "ctx-separator";
+      groupList.appendChild(sep);
+    }
+    groups.forEach(function(group) {
+      var colorObj = GROUP_COLORS[group.color] || GROUP_COLORS.grey;
+      var groupItem = document.createElement("div");
+      groupItem.className = "ctx-item";
+      groupItem.innerHTML =
+        "<span class=\"ctx-group-dot\" style=\"background:" + colorObj.bg + "\"></span>" +
+        escapeHTML(group.title || "Unnamed");
+      groupItem.addEventListener("click", function(ev) {
+        ev.stopPropagation();
+        addSelectionToGroup(group.id);
+        menu.classList.add("hidden");
+      });
+      groupList.appendChild(groupItem);
+    });
+
+    // Toggle expand on click
+    groupTrigger.onclick = function(ev) {
+      ev.stopPropagation();
+      var isHidden = groupList.classList.toggle("hidden");
+      groupArrow.classList.toggle("expanded", !isHidden);
+      // Reposition if menu overflows after expanding
+      repositionMenu(menu);
+    };
+
+    // Position menu
+    positionMenu(menu, e.clientX, e.clientY);
+  });
+}
+
+function positionMenu(menu, x, y) {
+  menu.classList.remove("hidden");
+  menu.style.left = "0px";
+  menu.style.top = "0px";
+  var rect = menu.getBoundingClientRect();
+  if (x + rect.width > window.innerWidth) x = window.innerWidth - rect.width - 4;
+  if (y + rect.height > window.innerHeight) y = window.innerHeight - rect.height - 4;
+  if (y < 0) y = 4;
+  menu.style.left = x + "px";
+  menu.style.top = y + "px";
+}
+
+function repositionMenu(menu) {
+  var rect = menu.getBoundingClientRect();
+  var x = rect.left;
+  var y = rect.top;
+  if (y + rect.height > window.innerHeight) y = window.innerHeight - rect.height - 4;
+  if (y < 0) y = 4;
+  menu.style.top = y + "px";
+}
+
+function handleContextAction(action) {
+  var ids = getSelectedTabIds();
+  if (ids.length === 0) return;
+
+  switch (action) {
+    case "new-tab-below":
+      chrome.tabs.get(ids[ids.length - 1], function(t) {
+        chrome.tabs.create({ index: t.index + 1 });
+      });
+      clearSelection();
+      break;
+
+    case "move-to-window":
+      chrome.windows.create({ tabId: ids[0] }, function(newWin) {
+        if (ids.length > 1) {
+          var rest = ids.slice(1);
+          chrome.tabs.move(rest, { windowId: newWin.id, index: -1 });
+        }
+      });
+      clearSelection();
+      break;
+
+    case "reload":
+      ids.forEach(function(id) { chrome.tabs.reload(id); });
+      break;
+
+    case "duplicate":
+      ids.forEach(function(id) { chrome.tabs.duplicate(id); });
+      break;
+
+    case "pin":
+      chrome.tabs.get(ids[0], function(t) {
+        var shouldPin = !t.pinned;
+        ids.forEach(function(id) {
+          chrome.tabs.update(id, { pinned: shouldPin });
+        });
+      });
+      clearSelection();
+      break;
+
+    case "mute":
+      chrome.tabs.get(ids[0], function(t) {
+        var shouldMute = !(t.mutedInfo && t.mutedInfo.muted);
+        ids.forEach(function(id) {
+          chrome.tabs.update(id, { muted: shouldMute });
+        });
+      });
+      break;
+
+    case "close":
+      chrome.tabs.remove(ids);
+      clearSelection();
+      break;
+
+    case "close-others":
+      chrome.tabs.query({ windowId: windowId, pinned: false }, function(tabs) {
+        var toClose = [];
+        tabs.forEach(function(t) {
+          if (ids.indexOf(t.id) === -1) toClose.push(t.id);
+        });
+        chrome.tabs.remove(toClose);
+      });
+      clearSelection();
+      break;
+  }
+}
+
+function addSelectionToNewGroup() {
+  var ids = getSelectedTabIds();
+  if (ids.length === 0) return;
+  chrome.tabs.group({ tabIds: ids }, function(groupId) {
+    chrome.tabGroups.update(groupId, { title: "", color: "grey" }, function(group) {
+      clearSelection();
+      // Wait for refresh to render the new group header, then show the menu
+      var onRefreshed = function() {
+        var header = document.querySelector(".group-header[data-group-id=\"" + groupId + "\"]");
+        if (header) {
+          var rect = header.getBoundingClientRect();
+          chrome.tabs.query({ groupId: groupId }, function(tabs) {
+            showGroupContextMenu(
+              { preventDefault: function(){}, stopPropagation: function(){}, clientX: rect.left, clientY: rect.bottom },
+              group,
+              tabs
+            );
+          });
+        }
+      };
+      // Small delay to let scheduleRefresh render the DOM
+      setTimeout(onRefreshed, 150);
+    });
+  });
+}
+
+function addSelectionToGroup(groupId) {
+  var ids = getSelectedTabIds();
+  if (ids.length === 0) return;
+  chrome.tabs.group({ tabIds: ids, groupId: groupId }, function() {
+    clearSelection();
+    scheduleRefresh();
+  });
+}
+
+// ─── Group Context Menu ─────────────────────────────────────
+
+var groupContextTarget = null; // { group, tabs }
+
+function showGroupContextMenu(e, group, tabs) {
+  e.preventDefault();
+  e.stopPropagation();
+
+  // Close tab context menu if open
+  document.getElementById("context-menu").classList.add("hidden");
+
+  groupContextTarget = { group: group, tabs: tabs };
+
+  var menu = document.getElementById("group-context-menu");
+  var nameInput = document.getElementById("ctx-group-name-input");
+  var colorRow = document.getElementById("ctx-color-row");
+
+  // Set name
+  nameInput.value = group.title || "";
+
+  // Build color swatches
+  colorRow.innerHTML = "";
+  var colorNames = Object.keys(GROUP_COLORS);
+  colorNames.forEach(function(colorName) {
+    var swatch = document.createElement("div");
+    swatch.className = "ctx-color-swatch" + (colorName === group.color ? " active" : "");
+    swatch.style.background = GROUP_COLORS[colorName].bg;
+    swatch.title = colorName.charAt(0).toUpperCase() + colorName.slice(1);
+    swatch.addEventListener("click", function(ev) {
+      ev.stopPropagation();
+      chrome.tabGroups.update(group.id, { color: colorName });
+      colorRow.querySelectorAll(".ctx-color-swatch").forEach(function(s) {
+        s.classList.remove("active");
+      });
+      swatch.classList.add("active");
+      groupContextTarget.group.color = colorName;
+    });
+    colorRow.appendChild(swatch);
+  });
+
+  // Name input — apply on Enter or blur
+  nameInput.onkeydown = function(ev) {
+    ev.stopPropagation();
+    if (ev.key === "Enter") {
+      chrome.tabGroups.update(group.id, { title: nameInput.value.trim() });
+      menu.classList.add("hidden");
+      scheduleRefresh();
+    } else if (ev.key === "Escape") {
+      menu.classList.add("hidden");
+    }
+  };
+  nameInput.onclick = function(ev) { ev.stopPropagation(); };
+
+  // Position and show
+  positionMenu(menu, e.clientX, e.clientY);
+
+  // Focus name input after showing
+  setTimeout(function() { nameInput.focus(); nameInput.select(); }, 0);
+}
+
+function setupGroupContextMenu() {
+  var menu = document.getElementById("group-context-menu");
+
+  // Close on outside click
+  document.addEventListener("click", function() {
+    if (!menu.classList.contains("hidden")) {
+      // Apply name change on close
+      var nameInput = document.getElementById("ctx-group-name-input");
+      if (groupContextTarget) {
+        var newName = nameInput.value.trim();
+        if (newName !== (groupContextTarget.group.title || "")) {
+          chrome.tabGroups.update(groupContextTarget.group.id, { title: newName });
+          scheduleRefresh();
+        }
+      }
+      menu.classList.add("hidden");
+      groupContextTarget = null;
+    }
+  });
+
+  menu.addEventListener("click", function(e) {
+    e.stopPropagation();
+  });
+
+  // Action handlers
+  menu.querySelectorAll("[data-group-action]").forEach(function(item) {
+    item.addEventListener("click", function(e) {
+      e.stopPropagation();
+      var action = item.getAttribute("data-group-action");
+      handleGroupContextAction(action);
+      menu.classList.add("hidden");
+      groupContextTarget = null;
+    });
+  });
+}
+
+function handleGroupContextAction(action) {
+  if (!groupContextTarget) return;
+  var group = groupContextTarget.group;
+  var tabs = groupContextTarget.tabs;
+  var tabIds = tabs.map(function(t) { return t.id; });
+
+  switch (action) {
+    case "new-tab-in-group":
+      chrome.tabs.create({ active: true }, function(tab) {
+        chrome.tabs.group({ tabIds: [tab.id], groupId: group.id });
+      });
+      break;
+
+    case "move-group-to-window":
+      if (tabIds.length > 0) {
+        chrome.windows.create({ tabId: tabIds[0] }, function(newWin) {
+          if (tabIds.length > 1) {
+            chrome.tabs.move(tabIds.slice(1), { windowId: newWin.id, index: -1 }, function() {
+              chrome.tabs.group({ tabIds: tabIds, createProperties: { windowId: newWin.id } }, function(newGroupId) {
+                chrome.tabGroups.update(newGroupId, { title: group.title || "", color: group.color });
+              });
+            });
+          } else {
+            chrome.tabs.group({ tabIds: tabIds, createProperties: { windowId: newWin.id } }, function(newGroupId) {
+              chrome.tabGroups.update(newGroupId, { title: group.title || "", color: group.color });
+            });
+          }
+        });
+      }
+      break;
+
+    case "save-group":
+      saveTabGroup(group, tabs);
+      break;
+
+    case "close-group":
+      closeAndSaveGroup(group, tabs);
+      break;
+
+    case "ungroup":
+      if (tabIds.length > 0) {
+        chrome.tabs.ungroup(tabIds, function() { scheduleRefresh(); });
+      }
+      break;
+
+    case "delete-group":
+      if (tabIds.length > 0) {
+        chrome.tabs.remove(tabIds);
+      }
+      break;
+  }
+}
+
+// ─── Bookmarks Toolbar ──────────────────────────────────────
+
+function setupBookmarksToolbar() {
+  document.getElementById("bookmarks-collapse-all").addEventListener("click", function() {
+    document.querySelectorAll("#bookmarks-content .bookmark-folder").forEach(function(folder) {
+      folder.classList.add("collapsed");
+    });
+  });
+}
+
 // ─── Bookmarks ──────────────────────────────────────────────
 
 function renderBookmarks() {
@@ -515,6 +994,7 @@ function renderBookmarkNodes(nodes, container, depth) {
       var header = document.createElement("div");
       header.className = "bookmark-folder-header";
       header.innerHTML =
+        "<span class=\"bookmark-folder-arrow\">&#9660;</span>" +
         "<span class=\"bookmark-folder-icon\">&#128193;</span>" +
         "<span>" + escapeHTML(node.title || "Folder") + "</span>";
 

@@ -15,20 +15,36 @@ A sidebar extension for Chrome that replaces the need for horizontal tabs with a
 - Audio indicator on tabs playing sound
 - Smooth collapse/expand animations on groups and sections
 
+### Multi-Select & Context Menu
+- Cmd/Ctrl+click to select individual tabs, Shift+click to select a range
+- Right-click selected tabs for a context menu with:
+  - New Tab Below
+  - Add to Group (New Group or any existing group)
+  - Move to New Window
+  - Reload, Duplicate, Pin/Unpin, Mute/Unmute
+  - Close, Close Other Tabs
+
+### Tab Group Management
+- Right-click a group header for a context menu with:
+  - Inline rename field (focused automatically)
+  - Color picker with all 9 Chrome group colors
+  - New Tab in Group
+  - Move Group to New Window
+  - Save Group, Close Group
+  - Ungroup (keeps tabs open), Delete Group (closes tabs)
+- Creating a new group opens the rename menu automatically
+- Save/rename/close groups via hover icons on group headers
+
 ### Saved Groups
 - Save any tab group using the floppy disk icon on the group header
 - Close a group (X button) to auto-save it and close all its tabs
 - Restore a saved group — if it's already open, it focuses it instead of duplicating
 - Delete saved groups you no longer need
 
-### Group Management
-- Rename groups inline (pencil icon)
-- Save groups for later (floppy disk icon)
-- Close and save groups (X icon — saves then closes all tabs)
-
 ### Bookmarks
 - Browse your Bookmarks Bar in a dedicated view
-- Collapsible folder tree
+- Collapsible folder tree with arrow indicators
+- Collapse All button to close all folders at once
 - Click any bookmark to open it
 
 ### Recently Closed
@@ -40,8 +56,7 @@ A sidebar extension for Chrome that replaces the need for horizontal tabs with a
 - Active view remembered across sessions
 - Pinned tabs always visible across all views
 - Side panel width adjustable via Chrome's native resize handle
-- Side panel state persists across Chrome restarts
-- Dark theme
+- Dark theme (Catppuccin-inspired)
 
 ## Installation
 
