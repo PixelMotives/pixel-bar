@@ -415,6 +415,7 @@ body {
   padding: 7px 12px 7px 22px;
   cursor: pointer;
   transition: background 0.15s;
+  position: relative;
 }
 
 .saved-group-item:hover {
@@ -439,20 +440,21 @@ body {
 .saved-group-tab-count {
   font-size: 11px;
   color: #6c7086;
+  line-height: 20px;
+  height: 20px;
 }
 
 .saved-group-actions {
-  display: flex;
-  gap: 4px;
-  opacity: 0;
-  transition: opacity 0.15s;
+  display: none;
+  gap: 2px;
+  align-items: center;
+  height: 20px;
 }
 
 .saved-group-item:hover .saved-group-actions {
-  opacity: 1;
+  display: flex;
 }
 
-/* Hide tab count when actions are visible */
 .saved-group-item:hover .saved-group-tab-count {
   display: none;
 }
@@ -463,8 +465,10 @@ body {
   color: #a6adc8;
   cursor: pointer;
   font-size: 13px;
-  padding: 2px 5px;
+  padding: 0 5px;
   border-radius: 3px;
+  line-height: 20px;
+  height: 20px;
 }
 
 .saved-group-actions button:hover {
@@ -473,6 +477,18 @@ body {
 
 .saved-group-actions button.delete-btn:hover {
   color: #f38ba8;
+}
+
+.saved-group-item.dragging {
+  opacity: 0.4;
+}
+
+.saved-group-item.drop-above {
+  box-shadow: 0 -2px 0 0 #89b4fa;
+}
+
+.saved-group-item.drop-below {
+  box-shadow: 0 2px 0 0 #89b4fa;
 }
 
 /* ─── Bookmarks Toolbar ─────────────────────────────────── */

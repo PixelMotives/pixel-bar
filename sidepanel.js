@@ -402,6 +402,8 @@ function renderSavedGroups() {
     var colorObj = GROUP_COLORS[sg.color] || GROUP_COLORS.grey;
     var el = document.createElement("div");
     el.className = "saved-group-item";
+    el.setAttribute("data-saved-index", index);
+    el.draggable = true;
     el.innerHTML =
       "<span class=\"saved-group-dot\" style=\"background:" + colorObj.bg + "\"></span>" +
       "<span class=\"saved-group-name\">" + escapeHTML(sg.name || "Unnamed") + "</span>" +
@@ -421,6 +423,49 @@ function renderSavedGroups() {
     });
     el.addEventListener("click", function() {
       restoreSavedGroup(sg);
+    });
+
+    // Drag-and-drop for saved group reordering
+    el.addEventListener("dragstart", function(e) {
+      dragData = { type: "saved-group", index: index };
+      e.dataTransfer.effectAllowed = "move";
+      el.classList.add("dragging");
+    });
+    el.addEventListener("dragend", function() {
+      el.classList.remove("dragging");
+      clearDropIndicators();
+      dragData = null;
+    });
+    el.addEventListener("dragover", function(e) {
+      if (!dragData || dragData.type !== "saved-group") return;
+      e.preventDefault();
+      e.dataTransfer.dropEffect = "move";
+      clearDropIndicators();
+      var rect = el.getBoundingClientRect();
+      var midY = rect.top + rect.height / 2;
+      if (e.clientY < midY) {
+        el.classList.add("drop-above");
+      } else {
+        el.classList.add("drop-below");
+      }
+    });
+    el.addEventListener("dragleave", function() { clearDropIndicators(); });
+    el.addEventListener("drop", function(e) {
+      e.preventDefault();
+      e.stopPropagation();
+      clearDropIndicators();
+      if (!dragData || dragData.type !== "saved-group") return;
+      if (dragData.index === index) return;
+      var rect = el.getBoundingClientRect();
+      var midY = rect.top + rect.height / 2;
+      var targetIndex = e.clientY < midY ? index : index + 1;
+      var fromIndex = dragData.index;
+      // Move item in array
+      var item = savedGroups.splice(fromIndex, 1)[0];
+      if (targetIndex > fromIndex) targetIndex--;
+      savedGroups.splice(targetIndex, 0, item);
+      chrome.storage.local.set(makeObj(STORAGE_KEYS.savedGroups, savedGroups));
+      renderSavedGroups();
     });
 
     body.appendChild(el);
@@ -830,7 +875,9 @@ function showGroupContextMenu(e, group, tabs) {
     swatch.title = colorName.charAt(0).toUpperCase() + colorName.slice(1);
     swatch.addEventListener("click", function(ev) {
       ev.stopPropagation();
-      chrome.tabGroups.update(group.id, { color: colorName });
+      chrome.tabGroups.update(group.id, { color: colorName }, function() {
+        scheduleRefresh();
+      });
       colorRow.querySelectorAll(".ctx-color-swatch").forEach(function(s) {
         s.classList.remove("active");
       });

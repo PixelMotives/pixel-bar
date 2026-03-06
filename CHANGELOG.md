@@ -4,6 +4,15 @@ All notable changes to Pixel Bar will be documented in this file.
 
 The format is based on [Keep a Changelog](https://keepachangelog.com/), and this project adheres to [Semantic Versioning](https://semver.org/).
 
+## [0.2.1] - 2026-03-05
+
+### Added
+- Drag-and-drop to reorder saved groups (persisted to storage)
+
+### Fixed
+- Group color picker in context menu now updates the sidebar header immediately
+- Saved group tab count and action buttons no longer cause layout shift on hover (matching group header fix)
+
 ## [0.2.0] - 2026-03-05
 
 ### Added

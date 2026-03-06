@@ -37,8 +37,9 @@ A sidebar extension for Chrome that replaces the need for horizontal tabs with a
 
 ### Saved Groups
 - Save any tab group using the floppy disk icon on the group header
-- Close a group (X button) to auto-save it and close all its tabs
+- Close a group (X button) to auto-save it and close all its tabs (fully closes tabs — zero resource usage)
 - Restore a saved group — if it's already open, it focuses it instead of duplicating
+- Drag-and-drop to reorder saved groups
 - Delete saved groups you no longer need
 
 ### Bookmarks
