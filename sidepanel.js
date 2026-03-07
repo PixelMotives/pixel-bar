@@ -16,7 +16,9 @@ var GROUP_COLORS = {
 
 var STORAGE_KEYS = {
   customNames:       "pb_custom_names",
+  tabHomes:          "pb_tab_homes",
   savedGroups:       "pb_saved_groups",
+  groupTitles:       "pb_group_titles",
   collapsedSections: "pb_collapsed_sections",
   collapsedGroups:   "pb_collapsed_groups",
   activeView:        "pb_active_view"
@@ -32,6 +34,9 @@ var collapsedGroups = {};
 var refreshTimer = null;
 var dragData = null;
 var activeView = "tabs";
+var tabHomes = {}; // tabId → homeUrl (runtime)
+var homeEntries = []; // [{homeUrl, lastTabUrl}] (persisted for cross-restart recovery)
+var groupTitles = []; // [{title, color, urls}] (persisted, for restoring titles after restart)
 
 // ─── Init ───────────────────────────────────────────────────
 
@@ -42,12 +47,17 @@ document.addEventListener("DOMContentLoaded", function() {
   chrome.windows.getCurrent(function(win) {
     windowId = win.id;
     chrome.storage.local.get(
-      [STORAGE_KEYS.customNames, STORAGE_KEYS.savedGroups,
+      [STORAGE_KEYS.customNames, STORAGE_KEYS.tabHomes, STORAGE_KEYS.savedGroups,
+       STORAGE_KEYS.groupTitles,
        STORAGE_KEYS.collapsedSections, STORAGE_KEYS.collapsedGroups,
        STORAGE_KEYS.activeView],
       function(data) {
         customNames       = data[STORAGE_KEYS.customNames] || {};
+        homeEntries       = data[STORAGE_KEYS.tabHomes] || [];
+        if (!Array.isArray(homeEntries)) homeEntries = [];
         savedGroups       = data[STORAGE_KEYS.savedGroups] || [];
+        groupTitles       = data[STORAGE_KEYS.groupTitles] || [];
+        if (!Array.isArray(groupTitles)) groupTitles = [];
         collapsedSections = data[STORAGE_KEYS.collapsedSections] || {};
         collapsedGroups   = data[STORAGE_KEYS.collapsedGroups] || {};
         activeView        = data[STORAGE_KEYS.activeView] || "tabs";
@@ -60,6 +70,10 @@ document.addEventListener("DOMContentLoaded", function() {
         refresh();
         setupChromeListeners();
         setupSectionToggles();
+        // Chrome's session restore may overwrite group titles/colors after our
+        // initial restore. Re-apply after a delay to catch this.
+        setTimeout(function() { forceRestoreGroupTitles(); }, 2000);
+        setTimeout(function() { forceRestoreGroupTitles(); }, 5000);
       }
     );
   });
@@ -114,6 +128,9 @@ function refresh() {
       selectedTabIds = selectedTabIds.filter(function(id) {
         return currentIds.indexOf(id) !== -1;
       });
+      // Rebuild tab-home associations
+      rebuildTabHomes(tabs);
+
       var pinnedTabs = [];
       var groupedTabs = {};
       var ungroupedTabs = [];
@@ -128,6 +145,19 @@ function refresh() {
           ungroupedTabs.push(tab);
         }
       });
+
+      // Sort groups by their position in the tab strip
+      groups.sort(function(a, b) {
+        var aTabs = groupedTabs[a.id] || [];
+        var bTabs = groupedTabs[b.id] || [];
+        var aIdx = aTabs.length > 0 ? aTabs[0].index : Infinity;
+        var bIdx = bTabs.length > 0 ? bTabs[0].index : Infinity;
+        return aIdx - bIdx;
+      });
+
+      // Restore and save group titles
+      restoreGroupTitles(groups, groupedTabs);
+      saveGroupTitles(groups, groupedTabs);
 
       renderPinnedTabs(pinnedTabs);
       renderTabGroups(groups, groupedTabs);
@@ -338,12 +368,16 @@ function createTabElement(tab) {
   el.draggable = true;
 
   var title = getTabDisplayName(tab);
+  var homeUrl = getTabHomeUrl(tab);
+  var hasCustomName = !!(tabHomes[tab.id] && customNames[tabHomes[tab.id]]);
 
   el.innerHTML =
     faviconHTML(tab, false) +
     "<span class=\"tab-title\" title=\"" + escapeAttr(tab.title || "") + "\">" +
       escapeHTML(title) +
     "</span>" +
+    (homeUrl ? "<button class=\"tab-home\" title=\"Return to saved page\">&#8617;</button>" : "") +
+    (homeUrl && hasCustomName ? "<button class=\"tab-set-home\" title=\"Set current page as home\">&#8962;</button>" : "") +
     (tab.audible ? "<span class=\"tab-audio\">&#128266;</span>" : "") +
     "<button class=\"tab-close\" title=\"Close tab\">&times;</button>";
 
@@ -359,6 +393,31 @@ function createTabElement(tab) {
     e.stopPropagation();
     closeTab(tab.id);
   });
+
+  // Home button — navigate back to saved URL
+  var homeBtn = el.querySelector(".tab-home");
+  if (homeBtn) {
+    homeBtn.addEventListener("click", function(e) {
+      e.stopPropagation();
+      chrome.tabs.update(tab.id, { url: homeUrl });
+    });
+  }
+
+  // Set home button — update home URL to current page
+  var setHomeBtn = el.querySelector(".tab-set-home");
+  if (setHomeBtn) {
+    setHomeBtn.addEventListener("click", function(e) {
+      e.stopPropagation();
+      var oldHome = tabHomes[tab.id];
+      var name = customNames[oldHome];
+      // Move the custom name to the new URL
+      delete customNames[oldHome];
+      customNames[tab.url] = name;
+      tabHomes[tab.id] = tab.url;
+      chrome.storage.local.set(makeObj(STORAGE_KEYS.customNames, customNames));
+      scheduleRefresh();
+    });
+  }
 
   // Double-click to rename
   el.querySelector(".tab-title").addEventListener("dblclick", function(e) {
@@ -524,7 +583,7 @@ function restoreSavedGroup(sg) {
         remaining--;
         if (remaining === 0) {
           chrome.tabs.group({ tabIds: tabIds }, function(groupId) {
-            chrome.tabGroups.update(groupId, {
+            applyGroupUpdate(groupId, {
               title: sg.name,
               color: sg.color
             });
@@ -559,7 +618,7 @@ function clearSelection() {
 }
 
 function handleTabClick(e, tab) {
-  if (e.target.classList.contains("tab-close")) return;
+  if (e.target.classList.contains("tab-close") || e.target.classList.contains("tab-home") || e.target.classList.contains("tab-set-home")) return;
 
   var metaKey = e.metaKey || e.ctrlKey;
   var shiftKey = e.shiftKey;
@@ -1194,8 +1253,29 @@ function handleGroupDrop(e, targetGroup) {
   if (!dragData || dragData.type !== "group") return;
   if (dragData.groupId === targetGroup.id) return;
 
-  chrome.tabGroups.move(dragData.groupId, { index: -1 }, function() {
-    scheduleRefresh();
+  var rect = e.currentTarget.getBoundingClientRect();
+  var midY = rect.top + rect.height / 2;
+  var dropAbove = e.clientY < midY;
+
+  // tabGroups.move uses tab indices, not group indices
+  // Get the first tab of the target group to determine position
+  chrome.tabs.query({ windowId: windowId }, function(allTabs) {
+    var targetGroupTabs = allTabs.filter(function(t) { return t.groupId === targetGroup.id; });
+    if (targetGroupTabs.length === 0) return;
+
+    var targetIndex;
+    if (dropAbove) {
+      targetIndex = targetGroupTabs[0].index;
+    } else {
+      targetIndex = targetGroupTabs[targetGroupTabs.length - 1].index + 1;
+    }
+
+    chrome.tabGroups.move(dragData.groupId, { index: targetIndex }, function() {
+      if (chrome.runtime.lastError) {
+        console.warn("Group move failed:", chrome.runtime.lastError.message);
+      }
+      scheduleRefresh();
+    });
   });
 }
 
@@ -1239,8 +1319,10 @@ function startRename(tab, titleEl) {
       var newName = input.value.trim();
       if (newName && newName !== tab.title) {
         customNames[tab.url] = newName;
+        tabHomes[tab.id] = tab.url;
       } else {
         delete customNames[tab.url];
+        delete tabHomes[tab.id];
       }
       chrome.storage.local.set(makeObj(STORAGE_KEYS.customNames, customNames));
       scheduleRefresh();
@@ -1259,7 +1341,231 @@ function startRename(tab, titleEl) {
 }
 
 function getTabDisplayName(tab) {
+  // If this tab has a home URL, show the custom name for the home
+  var homeUrl = tabHomes[tab.id];
+  if (homeUrl && customNames[homeUrl]) {
+    return customNames[homeUrl];
+  }
   return customNames[tab.url] || tab.title || tab.url || "New Tab";
+}
+
+function getTabHomeUrl(tab) {
+  var homeUrl = tabHomes[tab.id];
+  if (homeUrl && customNames[homeUrl] && tab.url !== homeUrl) {
+    return homeUrl;
+  }
+  return null;
+}
+
+// ─── Group Title Persistence ─────────────────────────────────
+
+function saveGroupTitles(groups, groupedTabs) {
+  // Save as an array of entries for flexible matching
+  var entries = [];
+  groups.forEach(function(group) {
+    if (group.title) {
+      var tabs = groupedTabs[group.id] || [];
+      var urls = tabs.map(function(t) { return t.url; }).sort();
+      entries.push({ title: group.title, color: group.color, urls: urls });
+    }
+  });
+  // Only save if we have titled groups (avoid wiping on restart before restore)
+  if (entries.length > 0) {
+    groupTitles = entries;
+    chrome.storage.local.set(makeObj(STORAGE_KEYS.groupTitles, entries));
+  }
+}
+
+function restoreGroupTitles(groups, groupedTabs) {
+  if (!Array.isArray(groupTitles) || groupTitles.length === 0) return;
+  var claimed = {};
+
+  groups.forEach(function(group) {
+    // Restore if group has no title, or if color was reset to grey (Chrome lost state)
+    var needsRestore = !group.title;
+    if (!needsRestore) return;
+
+    var tabs = groupedTabs[group.id] || [];
+    var urls = tabs.map(function(t) { return t.url; }).sort();
+    var urlSet = urls.join("\n");
+
+    var bestIdx = -1;
+    var bestScore = 0;
+    for (var i = 0; i < groupTitles.length; i++) {
+      if (claimed[i]) continue;
+      var entry = groupTitles[i];
+      var savedSet = (entry.urls || []).sort().join("\n");
+
+      // Exact URL match (best)
+      if (savedSet === urlSet) {
+        // Bonus for matching color
+        var score = entry.color === group.color ? Infinity : 1000;
+        if (score > bestScore) {
+          bestScore = score;
+          bestIdx = i;
+        }
+        if (score === Infinity) break;
+        continue;
+      }
+
+      // Partial match: count overlapping URLs
+      var overlap = 0;
+      urls.forEach(function(u) {
+        if (entry.urls && entry.urls.indexOf(u) !== -1) overlap++;
+      });
+      var total = Math.max(urls.length, (entry.urls || []).length, 1);
+      var score = overlap / total;
+      // Color match gives a small bonus
+      if (entry.color === group.color) score += 0.1;
+      if (score > 0.5 && score > bestScore) {
+        bestScore = score;
+        bestIdx = i;
+      }
+    }
+
+    if (bestIdx !== -1) {
+      claimed[bestIdx] = true;
+      var match = groupTitles[bestIdx];
+      var updates = {};
+      if (match.title) {
+        group.title = match.title;
+        updates.title = match.title;
+      }
+      if (match.color && match.color !== group.color) {
+        group.color = match.color;
+        updates.color = match.color;
+      }
+      applyGroupUpdate(group.id, updates);
+    }
+  });
+}
+
+function applyGroupUpdate(groupId, updates) {
+  // Toggle collapsed state to force Chrome's native tab strip to re-render
+  chrome.tabGroups.update(groupId, { collapsed: true }, function() {
+    if (chrome.runtime.lastError) return;
+    updates.collapsed = false;
+    chrome.tabGroups.update(groupId, updates);
+  });
+}
+
+function forceRestoreGroupTitles() {
+  if (!Array.isArray(groupTitles) || groupTitles.length === 0) return;
+  chrome.tabs.query({ windowId: windowId }, function(tabs) {
+    chrome.tabGroups.query({ windowId: windowId }, function(groups) {
+      var groupedTabs = {};
+      tabs.forEach(function(tab) {
+        if (!tab.pinned && tab.groupId !== -1) {
+          if (!groupedTabs[tab.groupId]) groupedTabs[tab.groupId] = [];
+          groupedTabs[tab.groupId].push(tab);
+        }
+      });
+      // Force-apply to ALL groups, not just untitled ones
+      var claimed = {};
+      groups.forEach(function(group) {
+        var gTabs = groupedTabs[group.id] || [];
+        var urls = gTabs.map(function(t) { return t.url; }).sort();
+        var urlSet = urls.join("\n");
+
+        var bestIdx = -1;
+        var bestScore = 0;
+        for (var i = 0; i < groupTitles.length; i++) {
+          if (claimed[i]) continue;
+          var entry = groupTitles[i];
+          var savedSet = (entry.urls || []).sort().join("\n");
+          if (savedSet === urlSet) {
+            var score = entry.color === group.color ? Infinity : 1000;
+            if (score > bestScore) { bestScore = score; bestIdx = i; }
+            if (score === Infinity) break;
+            continue;
+          }
+          var overlap = 0;
+          urls.forEach(function(u) {
+            if (entry.urls && entry.urls.indexOf(u) !== -1) overlap++;
+          });
+          var total = Math.max(urls.length, (entry.urls || []).length, 1);
+          var score = overlap / total;
+          if (entry.color === group.color) score += 0.1;
+          if (score > 0.5 && score > bestScore) { bestScore = score; bestIdx = i; }
+        }
+
+        if (bestIdx !== -1) {
+          claimed[bestIdx] = true;
+          var match = groupTitles[bestIdx];
+          var needsUpdate = false;
+          var updates = {};
+          if (match.title && match.title !== group.title) {
+            updates.title = match.title;
+            needsUpdate = true;
+          }
+          if (match.color && match.color !== group.color) {
+            updates.color = match.color;
+            needsUpdate = true;
+          }
+          if (needsUpdate) {
+            applyGroupUpdate(group.id, updates);
+            scheduleRefresh();
+          }
+        }
+      });
+    });
+  });
+}
+
+// ─── Tab Home Persistence ───────────────────────────────────
+
+function rebuildTabHomes(tabs) {
+  // Prune stale tab IDs
+  var currentIds = {};
+  tabs.forEach(function(t) { currentIds[t.id] = true; });
+  Object.keys(tabHomes).forEach(function(id) {
+    if (!currentIds[id]) delete tabHomes[id];
+  });
+
+  // Direct match: tabs sitting on a custom-named URL
+  tabs.forEach(function(tab) {
+    if (!tabHomes[tab.id] && customNames[tab.url]) {
+      tabHomes[tab.id] = tab.url;
+    }
+  });
+
+  // Recovery: match orphaned homes to tabs using homeEntries
+  var claimedHomes = {};
+  Object.keys(tabHomes).forEach(function(id) {
+    claimedHomes[tabHomes[id]] = true;
+  });
+
+  homeEntries.forEach(function(entry) {
+    if (claimedHomes[entry.homeUrl]) return;
+    // Try matching by lastTabUrl
+    for (var i = 0; i < tabs.length; i++) {
+      if (!tabHomes[tabs[i].id] && tabs[i].url === entry.lastTabUrl) {
+        tabHomes[tabs[i].id] = entry.homeUrl;
+        claimedHomes[entry.homeUrl] = true;
+        break;
+      }
+    }
+  });
+
+  // Persist: always save with actual current tab URLs
+  persistHomeEntries(tabs);
+}
+
+function persistHomeEntries(tabs) {
+  var entries = [];
+  Object.keys(tabHomes).forEach(function(tabId) {
+    var homeUrl = tabHomes[tabId];
+    var currentUrl = homeUrl;
+    for (var i = 0; i < tabs.length; i++) {
+      if (String(tabs[i].id) === String(tabId)) {
+        currentUrl = tabs[i].url;
+        break;
+      }
+    }
+    entries.push({ homeUrl: homeUrl, lastTabUrl: currentUrl });
+  });
+  homeEntries = entries;
+  chrome.storage.local.set(makeObj(STORAGE_KEYS.tabHomes, homeEntries));
 }
 
 // ─── Group Management ───────────────────────────────────────
@@ -1356,7 +1662,8 @@ function toggleGroupCollapse(groupId, groupEl) {
 
 function setupChromeListeners() {
   chrome.tabs.onCreated.addListener(scheduleRefresh);
-  chrome.tabs.onRemoved.addListener(function() {
+  chrome.tabs.onRemoved.addListener(function(tabId) {
+    delete tabHomes[tabId];
     scheduleRefresh();
     if (activeView === "history") {
       setTimeout(renderRecentlyClosed, 200);
