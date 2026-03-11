@@ -4,6 +4,27 @@ All notable changes to Pixel Bar will be documented in this file.
 
 The format is based on [Keep a Changelog](https://keepachangelog.com/), and this project adheres to [Semantic Versioning](https://semver.org/).
 
+## [0.3.0] - 2026-03-10
+
+### Added
+- **Pinned-in-group tabs** — Pin tabs within tab groups. Right-click a grouped tab → "Pin in Group" to pin it as a compact favicon-only tile at the top of the group
+- Pinned-in-group tabs share a tinted background with the group header in the group's color
+- Pinned-in-group tabs remain visible when the group is collapsed
+- Drag-and-drop to reorder pinned-in-group tabs within a group
+- Pinned-in-group tabs are moved to the front of their group in Chrome's native tab strip
+- Pin state persists across page navigation (tracked by tab ID, not URL)
+- Cross-restart recovery for pinned-in-group state via URL matching
+
+### Removed
+- Saved Groups feature (save, close, restore) — removed to avoid confusion with Chrome's native saved groups which are not accessible via extension APIs
+- Close Group button on group headers
+- Group title/color persistence across Chrome restarts — removed due to Chrome rendering bug where `chrome.tabGroups.update` updates internal state but the native tab bar doesn't repaint
+- Collapse sync with Chrome's native tab groups — same Chrome rendering bug
+
+### Changed
+- Group header and pinned-in-group tabs now wrapped in a `.group-top` container with tinted group color background
+- Tab context menu now shows "Pin in Group" / "Unpin in Group" for tabs inside a group
+
 ## [0.2.1] - 2026-03-05
 
 ### Added
