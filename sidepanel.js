@@ -19,7 +19,8 @@ var STORAGE_KEYS = {
   tabHomes:          "pb_tab_homes",
   collapsedSections: "pb_collapsed_sections",
   collapsedGroups:   "pb_collapsed_groups",
-  activeView:        "pb_active_view"
+  activeView:        "pb_active_view",
+  pinnedInGroup:     "pb_pinned_in_group"
 };
 
 // ─── State ──────────────────────────────────────────────────
@@ -33,6 +34,8 @@ var dragData = null;
 var activeView = "tabs";
 var tabHomes = {}; // tabId → homeUrl (runtime)
 var homeEntries = []; // [{homeUrl, lastTabUrl}] (persisted for cross-restart recovery)
+var pinnedInGroupIds = {}; // tabId → true (runtime)
+var pinnedInGroupEntries = []; // [{url, groupId}] (persisted for cross-restart recovery)
 
 // ─── Init ───────────────────────────────────────────────────
 
@@ -45,7 +48,7 @@ document.addEventListener("DOMContentLoaded", function() {
     chrome.storage.local.get(
       [STORAGE_KEYS.customNames, STORAGE_KEYS.tabHomes,
        STORAGE_KEYS.collapsedSections, STORAGE_KEYS.collapsedGroups,
-       STORAGE_KEYS.activeView],
+       STORAGE_KEYS.activeView, STORAGE_KEYS.pinnedInGroup],
       function(data) {
         customNames       = data[STORAGE_KEYS.customNames] || {};
         homeEntries       = data[STORAGE_KEYS.tabHomes] || [];
@@ -53,6 +56,8 @@ document.addEventListener("DOMContentLoaded", function() {
         collapsedSections = data[STORAGE_KEYS.collapsedSections] || {};
         collapsedGroups   = data[STORAGE_KEYS.collapsedGroups] || {};
         activeView        = data[STORAGE_KEYS.activeView] || "tabs";
+        pinnedInGroupEntries = data[STORAGE_KEYS.pinnedInGroup] || [];
+        if (!Array.isArray(pinnedInGroupEntries)) pinnedInGroupEntries = [];
         applySectionCollapseStates();
         setupViewNav();
         setupBookmarksToolbar();
@@ -118,6 +123,8 @@ function refresh() {
       });
       // Rebuild tab-home associations
       rebuildTabHomes(tabs);
+      // Rebuild pinned-in-group tab IDs (handles restart recovery)
+      rebuildPinnedInGroupIds(tabs);
 
       var pinnedTabs = [];
       var groupedTabs = {};
@@ -225,6 +232,17 @@ function renderTabGroups(groups, groupedTabs) {
     var colorObj = GROUP_COLORS[group.color] || GROUP_COLORS.grey;
     var isCollapsed = collapsedGroups[group.id] === true;
 
+    // Split tabs into pinned-in-group and normal
+    var pinnedTabs = [];
+    var normalTabs = [];
+    tabs.forEach(function(tab) {
+      if (isTabPinnedInGroup(tab)) {
+        pinnedTabs.push(tab);
+      } else {
+        normalTabs.push(tab);
+      }
+    });
+
     var groupEl = document.createElement("div");
     groupEl.className = "tab-group" + (isCollapsed ? " collapsed" : "");
     groupEl.setAttribute("data-group-id", group.id);
@@ -273,13 +291,90 @@ function renderTabGroups(groups, groupedTabs) {
     header.addEventListener("dragleave", function() { clearDropIndicators(); });
     header.addEventListener("drop", function(e) { handleGroupDrop(e, group); });
 
-    groupEl.appendChild(header);
+    // Group top area: header + pinned tabs share a colored background
+    var groupTop = document.createElement("div");
+    groupTop.className = "group-top";
+    groupTop.style.background = colorObj.bg + "26"; // ~15% opacity via hex alpha
+    groupTop.appendChild(header);
 
-    // Tab list
+    // Pinned-in-group tabs — compact favicon row
+    if (pinnedTabs.length > 0) {
+      var pinnedRow = document.createElement("div");
+      pinnedRow.className = "group-pinned-tabs";
+      pinnedTabs.forEach(function(tab) {
+        var el = document.createElement("div");
+        el.className = "group-pinned-tab" + (tab.active ? " active" : "");
+        el.title = getTabDisplayName(tab);
+        el.setAttribute("data-tab-id", tab.id);
+        el.draggable = true;
+        el.innerHTML = faviconHTML(tab, true);
+        if (tab.audible) {
+          el.innerHTML += "<span class=\"audio-indicator\">&#128266;</span>";
+        }
+        el.addEventListener("click", function() { activateTab(tab.id); });
+        el.addEventListener("auxclick", function(e) {
+          if (e.button === 1) closeTab(tab.id);
+        });
+        el.addEventListener("contextmenu", function(e) {
+          showContextMenu(e, tab);
+        });
+
+        // Drag-and-drop for reordering within pinned-in-group row
+        el.addEventListener("dragstart", function(e) {
+          dragData = { type: "group-pinned", tabId: tab.id, groupId: group.id, index: tab.index };
+          e.dataTransfer.effectAllowed = "move";
+          el.classList.add("dragging");
+        });
+        el.addEventListener("dragend", function() {
+          el.classList.remove("dragging");
+          clearDropIndicators();
+          dragData = null;
+        });
+        el.addEventListener("dragover", function(e) {
+          if (!dragData || dragData.type !== "group-pinned") return;
+          if (dragData.groupId !== group.id) return;
+          e.preventDefault();
+          e.dataTransfer.dropEffect = "move";
+          clearDropIndicators();
+          var rect = el.getBoundingClientRect();
+          var midX = rect.left + rect.width / 2;
+          if (e.clientX < midX) {
+            el.classList.add("drop-left");
+          } else {
+            el.classList.add("drop-right");
+          }
+        });
+        el.addEventListener("dragleave", function() { clearDropIndicators(); });
+        el.addEventListener("drop", function(e) {
+          e.preventDefault();
+          e.stopPropagation();
+          clearDropIndicators();
+          if (!dragData || dragData.type !== "group-pinned") return;
+          if (dragData.tabId === tab.id) return;
+          if (dragData.groupId !== group.id) return;
+          var rect = el.getBoundingClientRect();
+          var midX = rect.left + rect.width / 2;
+          var targetIndex = e.clientX < midX ? tab.index : tab.index + 1;
+          chrome.tabs.move(dragData.tabId, { index: targetIndex }, function() {
+            scheduleRefresh();
+          });
+        });
+
+        pinnedRow.appendChild(el);
+      });
+      groupTop.appendChild(pinnedRow);
+    }
+
+    groupEl.appendChild(groupTop);
+
+    // Body wrap for collapse animation (single child needed for grid 0fr trick)
+    var bodyWrap = document.createElement("div");
+    bodyWrap.className = "group-body-wrap";
+
     var body = document.createElement("div");
     body.className = "group-body tab-list";
     body.setAttribute("data-group-id", group.id);
-    tabs.forEach(function(tab) {
+    normalTabs.forEach(function(tab) {
       body.appendChild(createTabElement(tab));
     });
 
@@ -293,8 +388,6 @@ function renderTabGroups(groups, groupedTabs) {
     });
     body.addEventListener("drop", function(e) { handleTabListDrop(e, group.id); });
 
-    var bodyWrap = document.createElement("div");
-    bodyWrap.className = "group-body-wrap";
     bodyWrap.appendChild(body);
     groupEl.appendChild(bodyWrap);
     container.appendChild(groupEl);
@@ -542,6 +635,15 @@ function showContextMenu(e, tab) {
     pinItem.textContent = t.pinned ? "Unpin" : "Pin";
   });
 
+  // Update pin-in-group label and visibility
+  var pinInGroupItem = menu.querySelector("[data-action=\"pin-in-group\"]");
+  if (tab.groupId !== -1) {
+    pinInGroupItem.style.display = "";
+    pinInGroupItem.textContent = isTabPinnedInGroup(tab) ? "Unpin in Group" : "Pin in Group";
+  } else {
+    pinInGroupItem.style.display = "none";
+  }
+
   // Update mute label
   var muteItem = menu.querySelector("[data-action=\"mute\"]");
   chrome.tabs.get(tab.id, function(t) {
@@ -651,6 +753,17 @@ function handleContextAction(action) {
         var shouldPin = !t.pinned;
         ids.forEach(function(id) {
           chrome.tabs.update(id, { pinned: shouldPin });
+        });
+      });
+      clearSelection();
+      break;
+
+    case "pin-in-group":
+      ids.forEach(function(id) {
+        chrome.tabs.get(id, function(t) {
+          if (t.groupId !== -1) {
+            togglePinInGroup(t);
+          }
         });
       });
       clearSelection();
@@ -1256,6 +1369,96 @@ function startGroupRename(group, titleEl) {
   input.addEventListener("blur", onBlur);
 }
 
+// ─── Pinned in Group ────────────────────────────────────────
+
+function isTabPinnedInGroup(tab) {
+  return tab.groupId !== -1 && pinnedInGroupIds[tab.id] === true;
+}
+
+function togglePinInGroup(tab) {
+  if (pinnedInGroupIds[tab.id]) {
+    delete pinnedInGroupIds[tab.id];
+  } else {
+    pinnedInGroupIds[tab.id] = true;
+  }
+  persistPinnedInGroup();
+  // Move pinned tabs to the start of their group
+  enforcePinnedPosition(tab.groupId);
+  scheduleRefresh();
+}
+
+function persistPinnedInGroup() {
+  var ids = Object.keys(pinnedInGroupIds);
+  if (ids.length === 0) {
+    pinnedInGroupEntries = [];
+    chrome.storage.local.set(makeObj(STORAGE_KEYS.pinnedInGroup, pinnedInGroupEntries));
+    return;
+  }
+  // Collect current URLs for cross-restart recovery
+  var entries = [];
+  var remaining = ids.length;
+  ids.forEach(function(tabId) {
+    chrome.tabs.get(parseInt(tabId, 10), function(tab) {
+      if (!chrome.runtime.lastError && tab) {
+        entries.push({ url: tab.url, groupId: tab.groupId });
+      }
+      remaining--;
+      if (remaining === 0) {
+        pinnedInGroupEntries = entries;
+        chrome.storage.local.set(makeObj(STORAGE_KEYS.pinnedInGroup, pinnedInGroupEntries));
+      }
+    });
+  });
+}
+
+function rebuildPinnedInGroupIds(tabs) {
+  // Prune stale tab IDs
+  var currentIds = {};
+  tabs.forEach(function(t) { currentIds[t.id] = true; });
+  Object.keys(pinnedInGroupIds).forEach(function(id) {
+    if (!currentIds[id]) delete pinnedInGroupIds[id];
+  });
+
+  // Recovery: if pinnedInGroupIds is empty but we have persisted entries, try to match
+  if (Object.keys(pinnedInGroupIds).length === 0 && pinnedInGroupEntries.length > 0) {
+    var claimed = {};
+    pinnedInGroupEntries.forEach(function(entry) {
+      for (var i = 0; i < tabs.length; i++) {
+        var t = tabs[i];
+        if (!claimed[t.id] && t.groupId !== -1 && t.url === entry.url) {
+          pinnedInGroupIds[t.id] = true;
+          claimed[t.id] = true;
+          break;
+        }
+      }
+    });
+  }
+}
+
+function enforcePinnedPosition(groupId) {
+  chrome.tabs.query({ windowId: windowId }, function(allTabs) {
+    var groupTabs = allTabs.filter(function(t) { return t.groupId === groupId; });
+    if (groupTabs.length === 0) return;
+
+    // Find the first index in this group
+    var firstIndex = groupTabs[0].index;
+
+    // Collect pinned tabs that are not already at the front
+    var pinnedTabsInGroup = groupTabs.filter(function(t) {
+      return pinnedInGroupIds[t.id] === true;
+    });
+
+    // Move each pinned tab to the front of the group, in order
+    var moveIndex = firstIndex;
+    pinnedTabsInGroup.forEach(function(tab) {
+      if (tab.index !== moveIndex) {
+        chrome.tabs.move(tab.id, { index: moveIndex });
+      }
+      moveIndex++;
+    });
+  });
+}
+
 // ─── Section Toggles ───────────────────────────────────────
 
 function setupSectionToggles() {
@@ -1291,6 +1494,10 @@ function setupChromeListeners() {
   chrome.tabs.onCreated.addListener(scheduleRefresh);
   chrome.tabs.onRemoved.addListener(function(tabId) {
     delete tabHomes[tabId];
+    if (pinnedInGroupIds[tabId]) {
+      delete pinnedInGroupIds[tabId];
+      persistPinnedInGroup();
+    }
     scheduleRefresh();
     if (activeView === "history") {
       setTimeout(renderRecentlyClosed, 200);
