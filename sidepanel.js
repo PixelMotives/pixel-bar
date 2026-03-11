@@ -17,8 +17,6 @@ var GROUP_COLORS = {
 var STORAGE_KEYS = {
   customNames:       "pb_custom_names",
   tabHomes:          "pb_tab_homes",
-  savedGroups:       "pb_saved_groups",
-  groupTitles:       "pb_group_titles",
   collapsedSections: "pb_collapsed_sections",
   collapsedGroups:   "pb_collapsed_groups",
   activeView:        "pb_active_view"
@@ -28,7 +26,6 @@ var STORAGE_KEYS = {
 
 var windowId = null;
 var customNames = {};
-var savedGroups = [];
 var collapsedSections = {};
 var collapsedGroups = {};
 var refreshTimer = null;
@@ -36,7 +33,6 @@ var dragData = null;
 var activeView = "tabs";
 var tabHomes = {}; // tabId → homeUrl (runtime)
 var homeEntries = []; // [{homeUrl, lastTabUrl}] (persisted for cross-restart recovery)
-var groupTitles = []; // [{title, color, urls}] (persisted, for restoring titles after restart)
 
 // ─── Init ───────────────────────────────────────────────────
 
@@ -47,17 +43,13 @@ document.addEventListener("DOMContentLoaded", function() {
   chrome.windows.getCurrent(function(win) {
     windowId = win.id;
     chrome.storage.local.get(
-      [STORAGE_KEYS.customNames, STORAGE_KEYS.tabHomes, STORAGE_KEYS.savedGroups,
-       STORAGE_KEYS.groupTitles,
+      [STORAGE_KEYS.customNames, STORAGE_KEYS.tabHomes,
        STORAGE_KEYS.collapsedSections, STORAGE_KEYS.collapsedGroups,
        STORAGE_KEYS.activeView],
       function(data) {
         customNames       = data[STORAGE_KEYS.customNames] || {};
         homeEntries       = data[STORAGE_KEYS.tabHomes] || [];
         if (!Array.isArray(homeEntries)) homeEntries = [];
-        savedGroups       = data[STORAGE_KEYS.savedGroups] || [];
-        groupTitles       = data[STORAGE_KEYS.groupTitles] || [];
-        if (!Array.isArray(groupTitles)) groupTitles = [];
         collapsedSections = data[STORAGE_KEYS.collapsedSections] || {};
         collapsedGroups   = data[STORAGE_KEYS.collapsedGroups] || {};
         activeView        = data[STORAGE_KEYS.activeView] || "tabs";
@@ -70,10 +62,6 @@ document.addEventListener("DOMContentLoaded", function() {
         refresh();
         setupChromeListeners();
         setupSectionToggles();
-        // Chrome's session restore may overwrite group titles/colors after our
-        // initial restore. Re-apply after a delay to catch this.
-        setTimeout(function() { forceRestoreGroupTitles(); }, 2000);
-        setTimeout(function() { forceRestoreGroupTitles(); }, 5000);
       }
     );
   });
@@ -155,14 +143,9 @@ function refresh() {
         return aIdx - bIdx;
       });
 
-      // Restore and save group titles
-      restoreGroupTitles(groups, groupedTabs);
-      saveGroupTitles(groups, groupedTabs);
-
       renderPinnedTabs(pinnedTabs);
       renderTabGroups(groups, groupedTabs);
       renderUngroupedTabs(ungroupedTabs);
-      renderSavedGroups();
       updateSelectionVisuals();
     });
   });
@@ -258,9 +241,7 @@ function renderTabGroups(groups, groupedTabs) {
       "<span class=\"group-title\">" + escapeHTML(group.title || "Unnamed") + "</span>" +
       "<span class=\"group-count\">" + tabs.length + "</span>" +
       "<span class=\"group-actions\">" +
-        "<button class=\"group-action-btn group-save-btn\" title=\"Save group\">&#128190;</button>" +
         "<button class=\"group-action-btn group-rename-btn\" title=\"Rename group\">&#9998;</button>" +
-        "<button class=\"group-action-btn group-close-btn\" title=\"Save &amp; close group\">&#10005;</button>" +
       "</span>";
 
     header.addEventListener("click", function(e) {
@@ -272,19 +253,9 @@ function renderTabGroups(groups, groupedTabs) {
       showGroupContextMenu(e, group, tabs);
     });
 
-    header.querySelector(".group-save-btn").addEventListener("click", function(e) {
-      e.stopPropagation();
-      saveTabGroup(group, tabs);
-    });
-
     header.querySelector(".group-rename-btn").addEventListener("click", function(e) {
       e.stopPropagation();
       startGroupRename(group, header.querySelector(".group-title"));
-    });
-
-    header.querySelector(".group-close-btn").addEventListener("click", function(e) {
-      e.stopPropagation();
-      closeAndSaveGroup(group, tabs);
     });
 
     // Drag for group reorder
@@ -441,163 +412,6 @@ function createTabElement(tab) {
   el.addEventListener("drop", function(e) { handleTabDrop(e, tab); });
 
   return el;
-}
-
-// ─── Saved Groups ───────────────────────────────────────────
-
-function renderSavedGroups() {
-  var section = document.getElementById("saved-groups");
-  var body = section.querySelector(".section-body");
-  var count = section.querySelector(".section-count");
-  body.innerHTML = "";
-  count.textContent = savedGroups.length || "";
-
-  if (savedGroups.length === 0) {
-    body.innerHTML = "<div class=\"empty-message\">Save a tab group using the &#128190; icon</div>";
-    return;
-  }
-
-  savedGroups.forEach(function(sg, index) {
-    var colorObj = GROUP_COLORS[sg.color] || GROUP_COLORS.grey;
-    var el = document.createElement("div");
-    el.className = "saved-group-item";
-    el.setAttribute("data-saved-index", index);
-    el.draggable = true;
-    el.innerHTML =
-      "<span class=\"saved-group-dot\" style=\"background:" + colorObj.bg + "\"></span>" +
-      "<span class=\"saved-group-name\">" + escapeHTML(sg.name || "Unnamed") + "</span>" +
-      "<span class=\"saved-group-tab-count\">" + sg.urls.length + " tabs</span>" +
-      "<span class=\"saved-group-actions\">" +
-        "<button class=\"restore-btn\" title=\"Restore group\">&#8634;</button>" +
-        "<button class=\"delete-btn\" title=\"Delete\">&#10005;</button>" +
-      "</span>";
-
-    el.querySelector(".restore-btn").addEventListener("click", function(e) {
-      e.stopPropagation();
-      restoreSavedGroup(sg);
-    });
-    el.querySelector(".delete-btn").addEventListener("click", function(e) {
-      e.stopPropagation();
-      deleteSavedGroup(index);
-    });
-    el.addEventListener("click", function() {
-      restoreSavedGroup(sg);
-    });
-
-    // Drag-and-drop for saved group reordering
-    el.addEventListener("dragstart", function(e) {
-      dragData = { type: "saved-group", index: index };
-      e.dataTransfer.effectAllowed = "move";
-      el.classList.add("dragging");
-    });
-    el.addEventListener("dragend", function() {
-      el.classList.remove("dragging");
-      clearDropIndicators();
-      dragData = null;
-    });
-    el.addEventListener("dragover", function(e) {
-      if (!dragData || dragData.type !== "saved-group") return;
-      e.preventDefault();
-      e.dataTransfer.dropEffect = "move";
-      clearDropIndicators();
-      var rect = el.getBoundingClientRect();
-      var midY = rect.top + rect.height / 2;
-      if (e.clientY < midY) {
-        el.classList.add("drop-above");
-      } else {
-        el.classList.add("drop-below");
-      }
-    });
-    el.addEventListener("dragleave", function() { clearDropIndicators(); });
-    el.addEventListener("drop", function(e) {
-      e.preventDefault();
-      e.stopPropagation();
-      clearDropIndicators();
-      if (!dragData || dragData.type !== "saved-group") return;
-      if (dragData.index === index) return;
-      var rect = el.getBoundingClientRect();
-      var midY = rect.top + rect.height / 2;
-      var targetIndex = e.clientY < midY ? index : index + 1;
-      var fromIndex = dragData.index;
-      // Move item in array
-      var item = savedGroups.splice(fromIndex, 1)[0];
-      if (targetIndex > fromIndex) targetIndex--;
-      savedGroups.splice(targetIndex, 0, item);
-      chrome.storage.local.set(makeObj(STORAGE_KEYS.savedGroups, savedGroups));
-      renderSavedGroups();
-    });
-
-    body.appendChild(el);
-  });
-}
-
-function saveTabGroup(group, tabs) {
-  var urls = tabs.map(function(t) { return t.url; });
-  // Don't duplicate if already saved with same name+color
-  var alreadySaved = savedGroups.some(function(sg) {
-    return sg.name === (group.title || "Unnamed") && sg.color === (group.color || "grey");
-  });
-  if (alreadySaved) return;
-
-  savedGroups.push({
-    name: group.title || "Unnamed",
-    color: group.color || "grey",
-    urls: urls,
-    savedAt: Date.now()
-  });
-  chrome.storage.local.set(makeObj(STORAGE_KEYS.savedGroups, savedGroups));
-  renderSavedGroups();
-}
-
-function restoreSavedGroup(sg) {
-  // Check if a group with the same name and color already exists
-  chrome.tabGroups.query({ windowId: windowId }, function(groups) {
-    var existing = null;
-    for (var i = 0; i < groups.length; i++) {
-      if (groups[i].title === sg.name && groups[i].color === sg.color) {
-        existing = groups[i];
-        break;
-      }
-    }
-
-    if (existing) {
-      // Group already open — expand it and activate its first tab
-      chrome.tabGroups.update(existing.id, { collapsed: false });
-      chrome.tabs.query({ groupId: existing.id }, function(tabs) {
-        if (tabs.length > 0) {
-          chrome.tabs.update(tabs[0].id, { active: true });
-        }
-      });
-      collapsedGroups[existing.id] = false;
-      chrome.storage.local.set(makeObj(STORAGE_KEYS.collapsedGroups, collapsedGroups));
-      scheduleRefresh();
-      return;
-    }
-
-    // Not open — create the tabs and group them
-    var tabIds = [];
-    var remaining = sg.urls.length;
-    sg.urls.forEach(function(url) {
-      chrome.tabs.create({ url: url, active: false }, function(tab) {
-        tabIds.push(tab.id);
-        remaining--;
-        if (remaining === 0) {
-          chrome.tabs.group({ tabIds: tabIds }, function(groupId) {
-            applyGroupUpdate(groupId, {
-              title: sg.name,
-              color: sg.color
-            });
-          });
-        }
-      });
-    });
-  });
-}
-
-function deleteSavedGroup(index) {
-  savedGroups.splice(index, 1);
-  chrome.storage.local.set(makeObj(STORAGE_KEYS.savedGroups, savedGroups));
-  renderSavedGroups();
 }
 
 // ─── Multi-Select & Context Menu ────────────────────────────
@@ -1033,14 +847,6 @@ function handleGroupContextAction(action) {
       }
       break;
 
-    case "save-group":
-      saveTabGroup(group, tabs);
-      break;
-
-    case "close-group":
-      closeAndSaveGroup(group, tabs);
-      break;
-
     case "ungroup":
       if (tabIds.length > 0) {
         chrome.tabs.ungroup(tabIds, function() { scheduleRefresh(); });
@@ -1253,6 +1059,7 @@ function handleGroupDrop(e, targetGroup) {
   if (!dragData || dragData.type !== "group") return;
   if (dragData.groupId === targetGroup.id) return;
 
+  var movedGroupId = dragData.groupId;
   var rect = e.currentTarget.getBoundingClientRect();
   var midY = rect.top + rect.height / 2;
   var dropAbove = e.clientY < midY;
@@ -1270,10 +1077,8 @@ function handleGroupDrop(e, targetGroup) {
       targetIndex = targetGroupTabs[targetGroupTabs.length - 1].index + 1;
     }
 
-    chrome.tabGroups.move(dragData.groupId, { index: targetIndex }, function() {
-      if (chrome.runtime.lastError) {
-        console.warn("Group move failed:", chrome.runtime.lastError.message);
-      }
+    chrome.tabGroups.move(movedGroupId, { index: targetIndex }, function() {
+      void chrome.runtime.lastError; // Suppress intermittent index errors
       scheduleRefresh();
     });
   });
@@ -1355,161 +1160,6 @@ function getTabHomeUrl(tab) {
     return homeUrl;
   }
   return null;
-}
-
-// ─── Group Title Persistence ─────────────────────────────────
-
-function saveGroupTitles(groups, groupedTabs) {
-  // Save as an array of entries for flexible matching
-  var entries = [];
-  groups.forEach(function(group) {
-    if (group.title) {
-      var tabs = groupedTabs[group.id] || [];
-      var urls = tabs.map(function(t) { return t.url; }).sort();
-      entries.push({ title: group.title, color: group.color, urls: urls });
-    }
-  });
-  // Only save if we have titled groups (avoid wiping on restart before restore)
-  if (entries.length > 0) {
-    groupTitles = entries;
-    chrome.storage.local.set(makeObj(STORAGE_KEYS.groupTitles, entries));
-  }
-}
-
-function restoreGroupTitles(groups, groupedTabs) {
-  if (!Array.isArray(groupTitles) || groupTitles.length === 0) return;
-  var claimed = {};
-
-  groups.forEach(function(group) {
-    // Restore if group has no title, or if color was reset to grey (Chrome lost state)
-    var needsRestore = !group.title;
-    if (!needsRestore) return;
-
-    var tabs = groupedTabs[group.id] || [];
-    var urls = tabs.map(function(t) { return t.url; }).sort();
-    var urlSet = urls.join("\n");
-
-    var bestIdx = -1;
-    var bestScore = 0;
-    for (var i = 0; i < groupTitles.length; i++) {
-      if (claimed[i]) continue;
-      var entry = groupTitles[i];
-      var savedSet = (entry.urls || []).sort().join("\n");
-
-      // Exact URL match (best)
-      if (savedSet === urlSet) {
-        // Bonus for matching color
-        var score = entry.color === group.color ? Infinity : 1000;
-        if (score > bestScore) {
-          bestScore = score;
-          bestIdx = i;
-        }
-        if (score === Infinity) break;
-        continue;
-      }
-
-      // Partial match: count overlapping URLs
-      var overlap = 0;
-      urls.forEach(function(u) {
-        if (entry.urls && entry.urls.indexOf(u) !== -1) overlap++;
-      });
-      var total = Math.max(urls.length, (entry.urls || []).length, 1);
-      var score = overlap / total;
-      // Color match gives a small bonus
-      if (entry.color === group.color) score += 0.1;
-      if (score > 0.5 && score > bestScore) {
-        bestScore = score;
-        bestIdx = i;
-      }
-    }
-
-    if (bestIdx !== -1) {
-      claimed[bestIdx] = true;
-      var match = groupTitles[bestIdx];
-      var updates = {};
-      if (match.title) {
-        group.title = match.title;
-        updates.title = match.title;
-      }
-      if (match.color && match.color !== group.color) {
-        group.color = match.color;
-        updates.color = match.color;
-      }
-      applyGroupUpdate(group.id, updates);
-    }
-  });
-}
-
-function applyGroupUpdate(groupId, updates) {
-  // Toggle collapsed state to force Chrome's native tab strip to re-render
-  chrome.tabGroups.update(groupId, { collapsed: true }, function() {
-    if (chrome.runtime.lastError) return;
-    updates.collapsed = false;
-    chrome.tabGroups.update(groupId, updates);
-  });
-}
-
-function forceRestoreGroupTitles() {
-  if (!Array.isArray(groupTitles) || groupTitles.length === 0) return;
-  chrome.tabs.query({ windowId: windowId }, function(tabs) {
-    chrome.tabGroups.query({ windowId: windowId }, function(groups) {
-      var groupedTabs = {};
-      tabs.forEach(function(tab) {
-        if (!tab.pinned && tab.groupId !== -1) {
-          if (!groupedTabs[tab.groupId]) groupedTabs[tab.groupId] = [];
-          groupedTabs[tab.groupId].push(tab);
-        }
-      });
-      // Force-apply to ALL groups, not just untitled ones
-      var claimed = {};
-      groups.forEach(function(group) {
-        var gTabs = groupedTabs[group.id] || [];
-        var urls = gTabs.map(function(t) { return t.url; }).sort();
-        var urlSet = urls.join("\n");
-
-        var bestIdx = -1;
-        var bestScore = 0;
-        for (var i = 0; i < groupTitles.length; i++) {
-          if (claimed[i]) continue;
-          var entry = groupTitles[i];
-          var savedSet = (entry.urls || []).sort().join("\n");
-          if (savedSet === urlSet) {
-            var score = entry.color === group.color ? Infinity : 1000;
-            if (score > bestScore) { bestScore = score; bestIdx = i; }
-            if (score === Infinity) break;
-            continue;
-          }
-          var overlap = 0;
-          urls.forEach(function(u) {
-            if (entry.urls && entry.urls.indexOf(u) !== -1) overlap++;
-          });
-          var total = Math.max(urls.length, (entry.urls || []).length, 1);
-          var score = overlap / total;
-          if (entry.color === group.color) score += 0.1;
-          if (score > 0.5 && score > bestScore) { bestScore = score; bestIdx = i; }
-        }
-
-        if (bestIdx !== -1) {
-          claimed[bestIdx] = true;
-          var match = groupTitles[bestIdx];
-          var needsUpdate = false;
-          var updates = {};
-          if (match.title && match.title !== group.title) {
-            updates.title = match.title;
-            needsUpdate = true;
-          }
-          if (match.color && match.color !== group.color) {
-            updates.color = match.color;
-            needsUpdate = true;
-          }
-          if (needsUpdate) {
-            applyGroupUpdate(group.id, updates);
-            scheduleRefresh();
-          }
-        }
-      });
-    });
-  });
 }
 
 // ─── Tab Home Persistence ───────────────────────────────────
@@ -1604,29 +1254,6 @@ function startGroupRename(group, titleEl) {
 
   input.addEventListener("keydown", onKey);
   input.addEventListener("blur", onBlur);
-}
-
-function closeAndSaveGroup(group, tabs) {
-  // Save the group first (if not already saved with same name+color)
-  var alreadySaved = savedGroups.some(function(sg) {
-    return sg.name === (group.title || "Unnamed") && sg.color === (group.color || "grey");
-  });
-  if (!alreadySaved) {
-    var urls = tabs.map(function(t) { return t.url; });
-    savedGroups.push({
-      name: group.title || "Unnamed",
-      color: group.color || "grey",
-      urls: urls,
-      savedAt: Date.now()
-    });
-    chrome.storage.local.set(makeObj(STORAGE_KEYS.savedGroups, savedGroups));
-  }
-
-  // Close all tabs in the group
-  var tabIds = tabs.map(function(t) { return t.id; });
-  if (tabIds.length > 0) {
-    chrome.tabs.remove(tabIds);
-  }
 }
 
 // ─── Section Toggles ───────────────────────────────────────
