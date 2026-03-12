@@ -55,6 +55,15 @@ A sidebar extension for Chrome that replaces the need for horizontal tabs with a
 - View last 25 recently closed tabs
 - Click to restore
 
+### Clear Site Data
+- Cookie button (🍪⛔) in the pinned tabs row to manage site data for the active tab
+- Click to open a detailed menu showing all site data (cookies, cache storage, localStorage, sessionStorage) with item counts
+- Collapsible sections to inspect individual items stored by the site
+- Checkboxes to selectively choose which data types to clear
+- "Clear Selected & Reload" button clears chosen data and reloads the page
+- Cookies, localStorage, cacheStorage, and sessionStorage are cleared per-origin (only the current site)
+- HTTP cache is cleared globally (Chrome API limitation — no origin-scoped cache clearing available)
+
 ### General
 - Three-view navigation: Tabs, Bookmarks, History
 - Active view remembered across sessions
@@ -89,3 +98,6 @@ pixel-bar/
 - `sessions` — Access recently closed tabs
 - `storage` — Persist settings, pinned-in-group state, and custom tab names
 - `sidePanel` — Use Chrome's Side Panel API
+- `browsingData` — Clear site data (cache, cookies, storage) for the active tab's origin
+- `scripting` — Execute sessionStorage.clear() on the active tab (sessionStorage is not in the browsingData API)
+- `host_permissions: <all_urls>` — Required for scripting access to any tab

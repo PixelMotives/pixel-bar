@@ -63,6 +63,7 @@ document.addEventListener("DOMContentLoaded", function() {
         setupBookmarksToolbar();
         setupContextMenu();
         setupGroupContextMenu();
+        setupClearDataMenu();
         switchView(activeView);
         refresh();
         setupChromeListeners();
@@ -154,6 +155,7 @@ function refresh() {
       renderTabGroups(groups, groupedTabs);
       renderUngroupedTabs(ungroupedTabs);
       updateSelectionVisuals();
+      attachFaviconErrorHandlers(document);
     });
   });
 }
@@ -219,6 +221,21 @@ function renderPinnedTabs(tabs) {
 
     container.appendChild(el);
   });
+
+  // Clear site data button — always present, right-aligned
+  var clearBtn = document.createElement("button");
+  clearBtn.className = "clear-site-data-btn";
+  clearBtn.title = "Clear site data & reload";
+  clearBtn.innerHTML = "<span class='clear-icon-cookie'>&#127850;</span><span class='clear-icon-trash'>&#9940;</span>";
+  clearBtn.addEventListener("click", function(e) {
+    e.stopPropagation();
+    showClearDataMenu(e);
+  });
+  clearBtn.addEventListener("contextmenu", function(e) {
+    e.preventDefault();
+    e.stopPropagation();
+  });
+  container.appendChild(clearBtn);
 }
 
 // ─── Tab Groups ─────────────────────────────────────────────
@@ -591,6 +608,7 @@ function setupContextMenu() {
     if (e.key === "Escape") {
       menu.classList.add("hidden");
       document.getElementById("group-context-menu").classList.add("hidden");
+      document.getElementById("clear-data-menu").classList.add("hidden");
       groupContextTarget = null;
     }
   });
@@ -995,6 +1013,7 @@ function renderBookmarks() {
     if (!results || !results[0]) return;
     var children = results[0].children || [];
     renderBookmarkNodes(children, container, 0);
+    attachFaviconErrorHandlers(container);
   });
 }
 
@@ -1077,6 +1096,7 @@ function renderRecentlyClosed() {
       });
       container.appendChild(el);
     });
+    attachFaviconErrorHandlers(container);
   });
 }
 
@@ -1459,6 +1479,273 @@ function enforcePinnedPosition(groupId) {
   });
 }
 
+// ─── Clear Site Data ────────────────────────────────────────
+
+function getActiveTabOrigin(callback) {
+  chrome.tabs.query({ active: true, windowId: windowId }, function(tabs) {
+    if (tabs.length === 0) return callback(null, null);
+    var tab = tabs[0];
+    try {
+      var url = new URL(tab.url);
+      callback(url.origin, tab.id);
+    } catch(e) {
+      callback(null, null);
+    }
+  });
+}
+
+function clearSiteData(options) {
+  var defaults = {
+    cache: true,
+    cacheStorage: true,
+    cookies: true,
+    localStorage: true,
+    sessionStorage: true
+  };
+  var opts = options || defaults;
+
+  getActiveTabOrigin(function(origin, tabId) {
+    if (!origin || !tabId) return;
+
+    // Visual feedback
+    var btn = document.querySelector(".clear-site-data-btn");
+    if (btn) {
+      btn.classList.add("clearing");
+      btn.innerHTML = "&#10003;";
+      setTimeout(function() {
+        btn.classList.remove("clearing");
+        btn.innerHTML = "<span class='clear-icon-cookie'>&#127850;</span><span class='clear-icon-trash'>&#9940;</span>";
+      }, 800);
+    }
+
+    var pending = 0;
+    var done = function() {
+      pending--;
+      if (pending === 0) {
+        chrome.tabs.reload(tabId);
+      }
+    };
+
+    // Origin-scoped data via browsingData API
+    var browsingDataTypes = {};
+    if (opts.cookies) browsingDataTypes.cookies = true;
+    if (opts.localStorage) browsingDataTypes.localStorage = true;
+    if (opts.cacheStorage) browsingDataTypes.cacheStorage = true;
+
+    if (Object.keys(browsingDataTypes).length > 0) {
+      pending++;
+      chrome.browsingData.remove({ origins: [origin] }, browsingDataTypes, done);
+    }
+
+    // Cache is global (not origin-scoped in browsingData API)
+    if (opts.cache) {
+      pending++;
+      chrome.browsingData.removeCache({}, done);
+    }
+
+    // Session storage via scripting (not in browsingData API)
+    if (opts.sessionStorage) {
+      pending++;
+      chrome.scripting.executeScript({
+        target: { tabId: tabId },
+        func: function() { sessionStorage.clear(); }
+      }, function() {
+        void chrome.runtime.lastError;
+        done();
+      });
+    }
+
+    // If nothing was selected, just reload
+    if (pending === 0) {
+      chrome.tabs.reload(tabId);
+    }
+  });
+}
+
+function showClearDataMenu(e) {
+  // Close other menus
+  document.getElementById("context-menu").classList.add("hidden");
+  document.getElementById("group-context-menu").classList.add("hidden");
+
+  var menu = document.getElementById("clear-data-menu");
+  var list = document.getElementById("clear-data-list");
+  var header = menu.querySelector(".ctx-clear-header");
+  list.innerHTML = "";
+
+  getActiveTabOrigin(function(origin, tabId) {
+    if (!origin || !tabId) return;
+
+    // Set header to show the origin
+    try {
+      header.textContent = new URL(origin).host;
+    } catch(err) {
+      header.textContent = "Clear Site Data";
+    }
+
+    var sections = [
+      { key: "cache", label: "Cache", icon: "" },
+      { key: "cacheStorage", label: "Cache Storage", icon: "" },
+      { key: "cookies", label: "Cookies", icon: "" },
+      { key: "localStorage", label: "Local Storage", icon: "" },
+      { key: "sessionStorage", label: "Session Storage", icon: "" }
+    ];
+
+    // Track how many async queries are outstanding
+    // 3 callbacks: cookies, scripting (localStorage+sessionStorage), cacheStorage (chained after scripting)
+    var remaining = 3;
+    var siteData = {
+      cache: null,
+      cacheStorage: [],
+      cookies: [],
+      localStorage: [],
+      sessionStorage: []
+    };
+
+    var renderAll = function() {
+      list.innerHTML = "";
+      sections.forEach(function(sec) {
+        var section = document.createElement("div");
+        section.className = "ctx-clear-section";
+
+        var items = siteData[sec.key];
+        var countText = "";
+        if (sec.key === "cache") {
+          countText = "global";
+        } else if (items) {
+          countText = items.length.toString();
+        }
+
+        var headerEl = document.createElement("label");
+        headerEl.className = "ctx-clear-section-header";
+        var countDisplay = sec.key === "cache" ? "global" : (items ? items.length.toString() : "0");
+        headerEl.innerHTML =
+          "<input type=\"checkbox\" data-clear=\"" + sec.key + "\" checked />" +
+          "<span class=\"ctx-clear-label\">" + escapeHTML(sec.label) + "</span>" +
+          "<span class=\"ctx-clear-count\">(" + countDisplay + ")</span>" +
+          "<span class=\"ctx-clear-arrow\">&#9656;</span>";
+        section.appendChild(headerEl);
+
+        // Details list — collapsed by default
+        var details = document.createElement("div");
+        details.className = "ctx-clear-details collapsed";
+
+        if (sec.key === "cache") {
+          var note = document.createElement("div");
+          note.className = "ctx-clear-detail";
+          note.textContent = "HTTP cache (all sites)";
+          details.appendChild(note);
+        } else if (items && items.length > 0) {
+          var maxShow = 15;
+          var shown = items.slice(0, maxShow);
+          shown.forEach(function(name) {
+            var detail = document.createElement("div");
+            detail.className = "ctx-clear-detail";
+            detail.textContent = name;
+            detail.title = name;
+            details.appendChild(detail);
+          });
+          if (items.length > maxShow) {
+            var more = document.createElement("div");
+            more.className = "ctx-clear-detail";
+            more.textContent = "+" + (items.length - maxShow) + " more";
+            details.appendChild(more);
+          }
+        } else {
+          var empty = document.createElement("div");
+          empty.className = "ctx-clear-empty";
+          empty.textContent = "None";
+          details.appendChild(empty);
+        }
+
+        section.appendChild(details);
+
+        // Click header to expand/collapse details (but not checkbox clicks)
+        headerEl.addEventListener("click", function(e) {
+          if (e.target.tagName === "INPUT") return;
+          e.preventDefault();
+          details.classList.toggle("collapsed");
+          var arrow = headerEl.querySelector(".ctx-clear-arrow");
+          if (arrow) arrow.classList.toggle("expanded");
+        });
+        list.appendChild(section);
+      });
+
+      // Reposition after content renders
+      repositionMenu(menu);
+    };
+
+    var onQueryDone = function() {
+      remaining--;
+      if (remaining <= 0) renderAll();
+    };
+
+    // Query cookies
+    try {
+      var url = new URL(origin);
+      chrome.cookies.getAll({ domain: url.hostname }, function(cookies) {
+        siteData.cookies = (cookies || []).map(function(c) { return c.name; });
+        onQueryDone();
+      });
+    } catch(err) {
+      onQueryDone();
+    }
+
+    // Query cacheStorage, localStorage, sessionStorage via scripting
+    chrome.scripting.executeScript({
+      target: { tabId: tabId },
+      func: function() {
+        var result = { cacheStorage: [], localStorage: [], sessionStorage: [] };
+        try { result.localStorage = Object.keys(localStorage); } catch(e) {}
+        try { result.sessionStorage = Object.keys(sessionStorage); } catch(e) {}
+        return result;
+      }
+    }, function(results) {
+      if (!chrome.runtime.lastError && results && results[0] && results[0].result) {
+        var r = results[0].result;
+        siteData.localStorage = r.localStorage || [];
+        siteData.sessionStorage = r.sessionStorage || [];
+      }
+      onQueryDone();
+
+      // cacheStorage needs a separate async call inside the page
+      chrome.scripting.executeScript({
+        target: { tabId: tabId },
+        func: function() {
+          return caches.keys().then(function(names) { return names; });
+        }
+      }, function(cacheResults) {
+        if (!chrome.runtime.lastError && cacheResults && cacheResults[0] && cacheResults[0].result) {
+          siteData.cacheStorage = cacheResults[0].result;
+        }
+        onQueryDone();
+      });
+    });
+
+    positionMenu(menu, 4, e.clientY);
+  });
+}
+
+function setupClearDataMenu() {
+  var menu = document.getElementById("clear-data-menu");
+
+  document.addEventListener("click", function() {
+    menu.classList.add("hidden");
+  });
+
+  menu.addEventListener("click", function(e) {
+    e.stopPropagation();
+  });
+
+  document.getElementById("ctx-clear-selected").addEventListener("click", function() {
+    var opts = {};
+    menu.querySelectorAll("input[data-clear]").forEach(function(cb) {
+      opts[cb.getAttribute("data-clear")] = cb.checked;
+    });
+    clearSiteData(opts);
+    menu.classList.add("hidden");
+  });
+}
+
 // ─── Section Toggles ───────────────────────────────────────
 
 function setupSectionToggles() {
@@ -1529,7 +1816,7 @@ function setupChromeListeners() {
 
 function faviconHTML(tab, isPinned) {
   if (tab.favIconUrl && tab.favIconUrl.indexOf("chrome://") !== 0) {
-    return "<img class=\"tab-favicon\" src=\"" + escapeAttr(tab.favIconUrl) + "\" onerror=\"this.outerHTML=defaultFaviconHTML()\" />";
+    return "<img class=\"tab-favicon\" src=\"" + escapeAttr(tab.favIconUrl) + "\" />";
   }
   return defaultFaviconHTML();
 }
@@ -1539,10 +1826,23 @@ function faviconHTMLFromUrl(url) {
     var domain = "";
     try { domain = new URL(url).hostname; } catch(e) {}
     if (domain) {
-      return "<img class=\"bookmark-favicon\" src=\"https://www.google.com/s2/favicons?domain=" + encodeURIComponent(domain) + "&sz=16\" onerror=\"this.outerHTML=defaultFaviconHTML()\" />";
+      return "<img class=\"bookmark-favicon\" src=\"https://www.google.com/s2/favicons?domain=" + encodeURIComponent(domain) + "&sz=16\" />";
     }
   }
   return defaultFaviconHTML();
+}
+
+function attachFaviconErrorHandlers(container) {
+  container.querySelectorAll("img.tab-favicon, img.bookmark-favicon").forEach(function(img) {
+    if (img._faviconHandled) return;
+    img._faviconHandled = true;
+    img.addEventListener("error", function() {
+      var fallback = document.createElement("span");
+      fallback.className = "default-favicon";
+      fallback.innerHTML = "&#9679;";
+      img.parentNode.replaceChild(fallback, img);
+    });
+  });
 }
 
 function defaultFaviconHTML() {

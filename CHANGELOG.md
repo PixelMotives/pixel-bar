@@ -4,6 +4,20 @@ All notable changes to Pixel Bar will be documented in this file.
 
 The format is based on [Keep a Changelog](https://keepachangelog.com/), and this project adheres to [Semantic Versioning](https://semver.org/).
 
+## [0.4.1] - 2026-03-12
+
+### Added
+- **Clear site data** — Cookie button (🍪⛔) in the pinned tabs row to manage and clear site data for the active tab's origin
+- Click opens a detailed menu showing all site data with item counts per category (cookies, cache storage, localStorage, sessionStorage)
+- Collapsible sections to inspect individual stored items
+- Checkboxes to selectively choose which data types to clear
+- "Clear Selected & Reload" button clears chosen data and reloads the page
+- Visual feedback (checkmark) on clear action
+- New permissions: `browsingData`, `scripting`, `cookies`, `host_permissions: <all_urls>`
+
+### Fixed
+- Favicon error fallback no longer uses inline `onerror` handler (was blocked by MV3 Content Security Policy). Now uses programmatic error listeners via `attachFaviconErrorHandlers()`
+
 ## [0.3.0] - 2026-03-10
 
 ### Added
