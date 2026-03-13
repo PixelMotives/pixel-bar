@@ -1931,9 +1931,7 @@ function clearSiteData(options) {
     var done = function() {
       pending--;
       if (pending === 0) {
-        // Navigate to origin root instead of reloading current page
-        // Prevents login pages from re-setting state on reload
-        chrome.tabs.update(tabId, { url: origin + "/" });
+        chrome.tabs.reload(tabId);
       }
     };
 
@@ -2009,9 +2007,9 @@ function clearSiteData(options) {
       });
     }
 
-    // If nothing was selected, just navigate to origin root
+    // If nothing was selected, just reload
     if (pending === 0) {
-      chrome.tabs.update(tabId, { url: origin + "/" });
+      chrome.tabs.reload(tabId);
     }
   });
 }
