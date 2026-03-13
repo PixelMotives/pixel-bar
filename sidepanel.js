@@ -1959,11 +1959,34 @@ function clearSiteData(options) {
     var browsingDataTypes = {};
     if (opts.localStorage) browsingDataTypes.localStorage = true;
     if (opts.cacheStorage) browsingDataTypes.cacheStorage = true;
-    if (opts.indexedDB) browsingDataTypes.indexedDB = true;
 
     if (Object.keys(browsingDataTypes).length > 0) {
       pending++;
       chrome.browsingData.remove({ origins: [origin] }, browsingDataTypes, done);
+    }
+
+    // IndexedDB — delete each database directly via scripting
+    // (browsingData.remove can be unreliable for localhost/IP origins)
+    if (opts.indexedDB) {
+      pending++;
+      chrome.scripting.executeScript({
+        target: { tabId: tabId },
+        func: function() {
+          return indexedDB.databases().then(function(dbs) {
+            return Promise.all(dbs.map(function(db) {
+              return new Promise(function(resolve) {
+                var req = indexedDB.deleteDatabase(db.name);
+                req.onsuccess = resolve;
+                req.onerror = resolve;
+                req.onblocked = resolve;
+              });
+            }));
+          });
+        }
+      }, function() {
+        void chrome.runtime.lastError;
+        done();
+      });
     }
 
     // Cache is global (not origin-scoped in browsingData API)
