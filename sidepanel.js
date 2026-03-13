@@ -475,14 +475,14 @@ function createTabElement(tab) {
   var hasCustomName = !!(tabHomes[tab.id] && customNames[tabHomes[tab.id]]);
 
   el.innerHTML =
+    "<button class=\"tab-close\" title=\"Close tab\">&times;</button>" +
     faviconHTML(tab, false) +
     "<span class=\"tab-title\" title=\"" + escapeAttr(tab.title || "") + "\">" +
       escapeHTML(title) +
     "</span>" +
-    (homeUrl ? "<button class=\"tab-home\" title=\"Return to saved page\">&#8617;</button>" : "") +
-    "<button class=\"tab-set-home\" title=\"Set current page as home\">&#8962;</button>" +
     (tab.audible ? "<span class=\"tab-audio\">&#128266;</span>" : "") +
-    "<button class=\"tab-close\" title=\"Close tab\">&times;</button>";
+    "<button class=\"tab-set-home\" title=\"Set current page as home\">&#8962;</button>" +
+    (homeUrl ? "<button class=\"tab-home\" title=\"Return to saved page\">&#8617;</button>" : "");
 
   el.addEventListener("click", function(e) {
     handleTabClick(e, tab);
@@ -1051,7 +1051,7 @@ function renderSavedGroups() {
       "<span class=\"saved-group-collapse\">&#9660;</span>" +
       "<span class=\"saved-group-dot\" style=\"background:" + colorObj.bg + "\"></span>" +
       "<span class=\"saved-group-name\">" + escapeHTML(sg.name || "Unnamed") + "</span>" +
-      "<span class=\"saved-group-tab-count\">" + sg.urls.length + " tabs</span>" +
+      "<span class=\"saved-group-tab-count\">" + sg.urls.length + "</span>" +
       "<span class=\"saved-group-actions\">" +
         "<button class=\"restore-btn\" title=\"Restore group\">&#8634;</button>" +
         "<button class=\"delete-btn\" title=\"Delete\">&#10005;</button>" +
