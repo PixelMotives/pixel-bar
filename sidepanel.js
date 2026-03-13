@@ -1907,6 +1907,7 @@ function clearSiteData(options) {
     cache: true,
     cacheStorage: true,
     cookies: true,
+    indexedDB: true,
     localStorage: true,
     sessionStorage: true
   };
@@ -1958,6 +1959,7 @@ function clearSiteData(options) {
     var browsingDataTypes = {};
     if (opts.localStorage) browsingDataTypes.localStorage = true;
     if (opts.cacheStorage) browsingDataTypes.cacheStorage = true;
+    if (opts.indexedDB) browsingDataTypes.indexedDB = true;
 
     if (Object.keys(browsingDataTypes).length > 0) {
       pending++;
@@ -2013,17 +2015,19 @@ function showClearDataMenu(e) {
       { key: "cache", label: "Cache", icon: "" },
       { key: "cacheStorage", label: "Cache Storage", icon: "" },
       { key: "cookies", label: "Cookies", icon: "" },
+      { key: "indexedDB", label: "IndexedDB", icon: "" },
       { key: "localStorage", label: "Local Storage", icon: "" },
       { key: "sessionStorage", label: "Session Storage", icon: "" }
     ];
 
     // Track how many async queries are outstanding
-    // 3 callbacks: cookies, scripting (localStorage+sessionStorage), cacheStorage (chained after scripting)
-    var remaining = 3;
+    // 4 callbacks: cookies, scripting (localStorage+sessionStorage), cacheStorage, indexedDB
+    var remaining = 4;
     var siteData = {
       cache: null,
       cacheStorage: [],
       cookies: [],
+      indexedDB: [],
       localStorage: [],
       sessionStorage: []
     };
@@ -2146,6 +2150,21 @@ function showClearDataMenu(e) {
         }
         onQueryDone();
       });
+    });
+
+    // Query indexedDB database names via scripting
+    chrome.scripting.executeScript({
+      target: { tabId: tabId },
+      func: function() {
+        return indexedDB.databases().then(function(dbs) {
+          return dbs.map(function(db) { return db.name; });
+        });
+      }
+    }, function(idbResults) {
+      if (!chrome.runtime.lastError && idbResults && idbResults[0] && idbResults[0].result) {
+        siteData.indexedDB = idbResults[0].result;
+      }
+      onQueryDone();
     });
 
     positionMenu(menu, 4, e.clientY);
