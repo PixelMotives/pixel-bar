@@ -1934,9 +1934,28 @@ function clearSiteData(options) {
       }
     };
 
+    // Cookies — use chrome.cookies API to remove ALL cookies for the domain
+    // regardless of path (browsingData.remove may miss path-scoped cookies)
+    if (opts.cookies) {
+      pending++;
+      var url = new URL(origin);
+      chrome.cookies.getAll({ domain: url.hostname }, function(cookies) {
+        if (!cookies || cookies.length === 0) { done(); return; }
+        var cookiePending = cookies.length;
+        var cookieDone = function() {
+          cookiePending--;
+          if (cookiePending === 0) done();
+        };
+        cookies.forEach(function(cookie) {
+          var protocol = cookie.secure ? "https://" : "http://";
+          var cookieUrl = protocol + cookie.domain.replace(/^\./, "") + cookie.path;
+          chrome.cookies.remove({ url: cookieUrl, name: cookie.name }, cookieDone);
+        });
+      });
+    }
+
     // Origin-scoped data via browsingData API
     var browsingDataTypes = {};
-    if (opts.cookies) browsingDataTypes.cookies = true;
     if (opts.localStorage) browsingDataTypes.localStorage = true;
     if (opts.cacheStorage) browsingDataTypes.cacheStorage = true;
 
