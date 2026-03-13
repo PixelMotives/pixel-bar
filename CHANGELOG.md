@@ -4,6 +4,17 @@ All notable changes to Pixel Bar will be documented in this file.
 
 The format is based on [Keep a Changelog](https://keepachangelog.com/), and this project adheres to [Semantic Versioning](https://semver.org/).
 
+## [0.6.1] - 2026-03-13
+
+### Added
+- **Expandable saved groups** — Click a saved group to expand and preview its tabs (favicon + hostname) before restoring
+
+## [0.6.1] - 2026-03-13
+
+### Added
+- **Expandable saved groups** — Click a saved group to expand and preview its tabs (favicon + hostname) before restoring
+- **Tidy the Tabs** also collapses expanded saved groups
+
 ## [0.6.0] - 2026-03-13
 
 ### Added

@@ -634,17 +634,32 @@ body {
 /* ─── Saved Groups ───────────────────────────────────────── */
 
 .saved-group-item {
-  display: flex;
-  align-items: center;
-  gap: 8px;
-  padding: 7px 12px 7px 22px;
-  cursor: pointer;
-  transition: background 0.15s;
   position: relative;
 }
 
-.saved-group-item:hover {
+.saved-group-header {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 7px 12px;
+  cursor: pointer;
+  transition: background 0.15s;
+}
+
+.saved-group-header:hover {
   background: #313244;
+}
+
+.saved-group-collapse {
+  font-size: 8px;
+  transition: transform 0.2s;
+  width: 12px;
+  text-align: center;
+  flex-shrink: 0;
+}
+
+.saved-group-item.collapsed .saved-group-collapse {
+  transform: rotate(-90deg);
 }
 
 .saved-group-dot {
@@ -676,11 +691,11 @@ body {
   height: 20px;
 }
 
-.saved-group-item:hover .saved-group-actions {
+.saved-group-header:hover .saved-group-actions {
   display: flex;
 }
 
-.saved-group-item:hover .saved-group-tab-count {
+.saved-group-header:hover .saved-group-tab-count {
   display: none;
 }
 
@@ -702,6 +717,29 @@ body {
 
 .saved-group-actions .delete-btn:hover {
   color: #f38ba8;
+}
+
+.saved-group-urls {
+  overflow: hidden;
+}
+
+.saved-group-item.collapsed .saved-group-urls {
+  display: none;
+}
+
+.saved-group-url {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 4px 12px 4px 44px;
+  font-size: 12px;
+  color: #6c7086;
+}
+
+.saved-group-url-title {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
 }
 
 .saved-group-item.dragging {

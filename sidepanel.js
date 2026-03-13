@@ -1042,10 +1042,13 @@ function renderSavedGroups() {
   savedGroups.forEach(function(sg, index) {
     var colorObj = GROUP_COLORS[sg.color] || GROUP_COLORS.grey;
     var el = document.createElement("div");
-    el.className = "saved-group-item";
+    el.className = "saved-group-item collapsed";
     el.setAttribute("data-saved-index", index);
     el.draggable = true;
-    el.innerHTML =
+    var header = document.createElement("div");
+    header.className = "saved-group-header";
+    header.innerHTML =
+      "<span class=\"saved-group-collapse\">&#9660;</span>" +
       "<span class=\"saved-group-dot\" style=\"background:" + colorObj.bg + "\"></span>" +
       "<span class=\"saved-group-name\">" + escapeHTML(sg.name || "Unnamed") + "</span>" +
       "<span class=\"saved-group-tab-count\">" + sg.urls.length + " tabs</span>" +
@@ -1053,17 +1056,32 @@ function renderSavedGroups() {
         "<button class=\"restore-btn\" title=\"Restore group\">&#8634;</button>" +
         "<button class=\"delete-btn\" title=\"Delete\">&#10005;</button>" +
       "</span>";
+    el.appendChild(header);
 
-    el.querySelector(".restore-btn").addEventListener("click", function(e) {
+    var urlList = document.createElement("div");
+    urlList.className = "saved-group-urls";
+    sg.urls.forEach(function(url) {
+      var urlEl = document.createElement("div");
+      urlEl.className = "saved-group-url";
+      var title = "";
+      try { title = new URL(url).hostname.replace(/^www\./, ""); } catch(e) { title = url; }
+      urlEl.innerHTML = faviconHTMLFromUrl(url) +
+        "<span class=\"saved-group-url-title\">" + escapeHTML(title) + "</span>";
+      urlList.appendChild(urlEl);
+    });
+    el.appendChild(urlList);
+
+    header.querySelector(".restore-btn").addEventListener("click", function(e) {
       e.stopPropagation();
       restoreSavedGroup(sg);
     });
-    el.querySelector(".delete-btn").addEventListener("click", function(e) {
+    header.querySelector(".delete-btn").addEventListener("click", function(e) {
       e.stopPropagation();
       deleteSavedGroup(index);
     });
-    el.addEventListener("click", function() {
-      restoreSavedGroup(sg);
+    header.addEventListener("click", function(e) {
+      if (e.target.closest("button")) return;
+      el.classList.toggle("collapsed");
     });
 
     // Drag-and-drop for saved group reordering
@@ -1110,6 +1128,7 @@ function renderSavedGroups() {
 
     body.appendChild(el);
   });
+  attachFaviconErrorHandlers(body);
 }
 
 function saveTabGroup(group, tabs) {
@@ -2162,6 +2181,10 @@ function setupToolbar() {
       }
     });
     chrome.storage.local.set(makeObj(STORAGE_KEYS.collapsedGroups, collapsedGroups));
+    // Collapse all expanded saved groups
+    document.querySelectorAll(".saved-group-item:not(.collapsed)").forEach(function(el) {
+      el.classList.add("collapsed");
+    });
   });
 
   // Merge duplicates button
