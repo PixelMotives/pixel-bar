@@ -1889,6 +1889,20 @@ function enforcePinnedPosition(groupId) {
 
 // ─── Clear Site Data ────────────────────────────────────────
 
+var CLEAR_DATA_PERMS = {
+  permissions: ["browsingData", "scripting", "cookies"],
+  origins: ["<all_urls>"]
+};
+
+function ensureClearDataPermissions(callback) {
+  chrome.permissions.contains(CLEAR_DATA_PERMS, function(has) {
+    if (has) return callback();
+    chrome.permissions.request(CLEAR_DATA_PERMS, function(granted) {
+      if (granted) callback();
+    });
+  });
+}
+
 function getActiveTabOrigin(callback) {
   chrome.tabs.query({ active: true, windowId: windowId }, function(tabs) {
     if (tabs.length === 0) return callback(null, null);
@@ -2015,6 +2029,13 @@ function clearSiteData(options) {
 }
 
 function showClearDataMenu(e) {
+  var evt = e;
+  ensureClearDataPermissions(function() {
+    showClearDataMenuInner(evt);
+  });
+}
+
+function showClearDataMenuInner(e) {
   // Close other menus
   document.getElementById("context-menu").classList.add("hidden");
   document.getElementById("group-context-menu").classList.add("hidden");

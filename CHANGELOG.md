@@ -4,14 +4,17 @@ All notable changes to Pixel Bar will be documented in this file.
 
 The format is based on [Keep a Changelog](https://keepachangelog.com/), and this project adheres to [Semantic Versioning](https://semver.org/).
 
-## [0.6.2] - 2026-03-13
+## [0.7.0] - 2026-03-13
 
 ### Changed
-- **Tab item icon layout** — Close button moved to the left; set-home and return-to-home buttons on the right
+- **Clear site data permissions** — browsingData, scripting, cookies, and host permissions are now optional; Chrome prompts on first use
+- **Tab item icon layout** — Set-home button in left gutter, stray indicator badge on favicon, close button on the right
 - **Saved group counts** — Removed "tabs" suffix to match other count styles
+- **Cookie clearing** — Uses chrome.cookies API to remove all path-scoped cookies
+- **IndexedDB clearing** — Deletes databases directly via scripting for localhost/IP reliability
 
 ### Fixed
-- **Tidy the Tabs reliability** — Added windowId fallback, improved retry logic, and debug logging for Sonoma compatibility
+- **Tidy the Tabs reliability** — Added windowId fallback and improved retry logic for Sonoma compatibility
 
 ## [0.6.1] - 2026-03-13
 
