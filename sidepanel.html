@@ -12,6 +12,7 @@
 
     <div id="toolbar">
       <button id="tidy-tab-bar" class="toolbar-btn" title="Collapse all groups and move ungrouped tabs to the end">&#10024; Tidy the Tabs</button>
+      <button id="merge-duplicates" class="toolbar-btn" title="Merge duplicate tab groups">&#128279; Merge Dupes</button>
       <div class="toolbar-spacer"></div>
       <button id="toolbar-clear-data" class="toolbar-btn clear-site-data-btn" title="Clear site data & reload">
         <span class="clear-icon-cookie">&#127850;</span><span class="clear-icon-trash">&#9940;</span>
@@ -32,9 +33,21 @@
           <span class="section-collapse">&#9660;</span>
           <span class="section-title">Ungrouped Tabs</span>
           <span class="section-count"></span>
+          <button id="close-ungrouped" class="section-action-btn" title="Close all ungrouped tabs">&#128465;</button>
         </div>
         <div class="section-body-wrap">
           <div class="section-body tab-list"></div>
+        </div>
+      </div>
+
+      <div id="saved-groups" class="section">
+        <div class="section-header" data-section="saved-groups">
+          <span class="section-collapse">&#9660;</span>
+          <span class="section-title">Saved Groups</span>
+          <span class="section-count"></span>
+        </div>
+        <div class="section-body-wrap">
+          <div class="section-body"></div>
         </div>
       </div>
 
@@ -85,12 +98,18 @@
     <div class="ctx-item" data-group-action="new-tab-in-group">New Tab in Group</div>
     <div class="ctx-item" data-group-action="move-group-to-window">Move Group to New Window</div>
     <div class="ctx-separator"></div>
+    <div class="ctx-item" data-group-action="save-group">Save Group</div>
+    <div class="ctx-item" data-group-action="close-group">Close &amp; Save Group</div>
+    <div class="ctx-separator"></div>
     <div class="ctx-item" data-group-action="ungroup">Ungroup</div>
     <div class="ctx-item ctx-danger" data-group-action="delete-group">Delete Group</div>
   </div>
 
   <div id="clear-data-menu" class="hidden">
-    <div class="ctx-clear-header"></div>
+    <div class="ctx-clear-header-row">
+      <div class="ctx-clear-header"></div>
+      <button id="clear-data-close" class="ctx-clear-close" title="Close">&times;</button>
+    </div>
     <div id="clear-data-list"></div>
     <div class="ctx-separator"></div>
     <div class="ctx-item ctx-clear-btn" id="ctx-clear-selected">Clear Selected &amp; Reload</div>

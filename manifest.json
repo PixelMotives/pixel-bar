@@ -1,7 +1,7 @@
 {
   "manifest_version": 3,
   "name": "Pixel Bar",
-  "version": "0.4.1",
+  "version": "0.6.0",
   "description": "A powerful sidebar with vertical tabs, pinned-in-group tabs, bookmarks, and recently closed tabs.",
   "permissions": [
     "tabs",

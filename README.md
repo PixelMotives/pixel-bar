@@ -41,13 +41,23 @@ A sidebar extension for Chrome that replaces the need for horizontal tabs with a
   - Color picker with all 9 Chrome group colors
   - New Tab in Group
   - Move Group to New Window
+  - Save Group, Close & Save Group
   - Ungroup (keeps tabs open), Delete Group (closes tabs)
 - Creating a new group opens the rename menu automatically
-- Rename groups via hover icon on group headers
+- Group header hover actions: save, restore, rename, close
+
+### Saved Groups
+- Save tab group snapshots (name, color, URLs) for later restoration
+- Saving sets home URLs on all tabs for reliable restore
+- Restore navigates strayed tabs home first, then creates only truly missing tabs
+- Drag-and-drop to reorder saved groups
+- Delete saved groups individually
 
 ### Bookmarks
 - Browse your Bookmarks Bar in a dedicated view
 - Collapsible folder tree with arrow indicators
+- Folder expanded/collapsed state persisted across Chrome restarts
+- Folders default to collapsed on first use
 - Collapse All button to close all folders at once
 - Click any bookmark to open it
 
@@ -55,12 +65,20 @@ A sidebar extension for Chrome that replaces the need for horizontal tabs with a
 - View last 25 recently closed tabs
 - Click to restore
 
+### Toolbar
+- Dedicated utility row between pinned tabs and view navigation
+- **Tidy the Tabs** — Collapse all native tab groups, move ungrouped tabs to the end, and collapse sidebar groups
+- **Merge Dupes** — Merge tab groups with matching name and color, deduplicate URLs, close ungrouped tabs already in a group
+- **Close Ungrouped** — Trashcan button on the Ungrouped Tabs header to close all ungrouped tabs
+- **Auto-collapse** — Switching tabs automatically collapses other native tab groups, keeping only the active group expanded
+
 ### Clear Site Data
-- Cookie button (🍪⛔) in the pinned tabs row to manage site data for the active tab
+- Cookie button (🍪⛔) in the toolbar to manage site data for the active tab
 - Click to open a detailed menu showing all site data (cookies, cache storage, localStorage, sessionStorage) with item counts
 - Collapsible sections to inspect individual items stored by the site
 - Checkboxes to selectively choose which data types to clear
 - "Clear Selected & Reload" button clears chosen data and reloads the page
+- Close button to dismiss the menu
 - Cookies, localStorage, cacheStorage, and sessionStorage are cleared per-origin (only the current site)
 - HTTP cache is cleared globally (Chrome API limitation — no origin-scoped cache clearing available)
 
