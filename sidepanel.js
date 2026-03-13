@@ -475,14 +475,16 @@ function createTabElement(tab) {
   var hasCustomName = !!(tabHomes[tab.id] && customNames[tabHomes[tab.id]]);
 
   el.innerHTML =
-    "<button class=\"tab-close\" title=\"Close tab\">&times;</button>" +
-    faviconHTML(tab, false) +
+    "<button class=\"tab-set-home\" title=\"Set current page as home\">&#8962;</button>" +
+    "<span class=\"tab-favicon-wrap" + (homeUrl ? " strayed" : "") + "\">" +
+      faviconHTML(tab, false) +
+      (homeUrl ? "<span class=\"stray-badge\" title=\"Return to saved page\">&#8617;</span>" : "") +
+    "</span>" +
     "<span class=\"tab-title\" title=\"" + escapeAttr(tab.title || "") + "\">" +
       escapeHTML(title) +
     "</span>" +
     (tab.audible ? "<span class=\"tab-audio\">&#128266;</span>" : "") +
-    "<button class=\"tab-set-home\" title=\"Set current page as home\">&#8962;</button>" +
-    (homeUrl ? "<button class=\"tab-home\" title=\"Return to saved page\">&#8617;</button>" : "");
+    "<button class=\"tab-close\" title=\"Close tab\">&times;</button>";
 
   el.addEventListener("click", function(e) {
     handleTabClick(e, tab);
@@ -497,10 +499,11 @@ function createTabElement(tab) {
     closeTab(tab.id);
   });
 
-  // Home button — navigate back to saved URL
-  var homeBtn = el.querySelector(".tab-home");
-  if (homeBtn) {
-    homeBtn.addEventListener("click", function(e) {
+  // Stray badge — click favicon area to navigate back to saved URL
+  var strayBadge = el.querySelector(".stray-badge");
+  if (strayBadge) {
+    var faviconWrap = el.querySelector(".tab-favicon-wrap");
+    faviconWrap.addEventListener("click", function(e) {
       e.stopPropagation();
       chrome.tabs.update(tab.id, { url: homeUrl });
     });
@@ -567,7 +570,7 @@ function clearSelection() {
 }
 
 function handleTabClick(e, tab) {
-  if (e.target.classList.contains("tab-close") || e.target.classList.contains("tab-home") || e.target.classList.contains("tab-set-home")) return;
+  if (e.target.classList.contains("tab-close") || e.target.classList.contains("tab-set-home") || e.target.closest(".tab-favicon-wrap .stray-badge")) return;
 
   var metaKey = e.metaKey || e.ctrlKey;
   var shiftKey = e.shiftKey;
