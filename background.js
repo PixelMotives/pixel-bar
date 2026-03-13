@@ -76,14 +76,9 @@ chrome.windows.onCreated.addListener(function(win) {
 chrome.runtime.onMessage.addListener(function(msg, sender, sendResponse) {
   if (msg.action === "tidy-tab-bar") {
     var doTidy = function(wId) {
-      console.log("[Pixel Bar] tidy-tab-bar executing, windowId:", wId);
       // Collapse all groups, then move ungrouped tabs to the end
       chrome.tabGroups.query({ windowId: wId }, function(groups) {
-        if (chrome.runtime.lastError) {
-          console.warn("[Pixel Bar] tabGroups.query error:", chrome.runtime.lastError.message);
-          return;
-        }
-        console.log("[Pixel Bar] Found", groups.length, "groups to tidy");
+        if (chrome.runtime.lastError) return;
         var collapsePromises = groups
           .filter(function(g) { return !g.collapsed; })
           .map(function(group) {
@@ -95,12 +90,8 @@ chrome.runtime.onMessage.addListener(function(msg, sender, sendResponse) {
         Promise.all(collapsePromises).then(function() {
           // Move ungrouped tabs after groups are collapsed
           chrome.tabs.query({ windowId: wId }, function(tabs) {
-            if (chrome.runtime.lastError) {
-              console.warn("[Pixel Bar] tabs.query error:", chrome.runtime.lastError.message);
-              return;
-            }
+            if (chrome.runtime.lastError) return;
             var ungrouped = tabs.filter(function(t) { return !t.pinned && t.groupId === -1; });
-            console.log("[Pixel Bar] Moving", ungrouped.length, "ungrouped tabs");
             ungrouped.forEach(function(tab) {
               withRetry(function() {
                 return chrome.tabs.move(tab.id, { index: -1 });
@@ -132,7 +123,7 @@ function withRetry(fn, retries) {
         setTimeout(function() { resolve(withRetry(fn, retries - 1)); }, 100);
       });
     }
-    console.warn("[Pixel Bar] withRetry failed:", msg);
+    // Non-retryable error — let it go silently
   });
 }
 
