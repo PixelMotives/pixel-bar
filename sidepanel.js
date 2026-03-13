@@ -64,6 +64,7 @@ document.addEventListener("DOMContentLoaded", function() {
         setupContextMenu();
         setupGroupContextMenu();
         setupClearDataMenu();
+        setupToolbar();
         switchView(activeView);
         refresh();
         setupChromeListeners();
@@ -222,20 +223,6 @@ function renderPinnedTabs(tabs) {
     container.appendChild(el);
   });
 
-  // Clear site data button — always present, right-aligned
-  var clearBtn = document.createElement("button");
-  clearBtn.className = "clear-site-data-btn";
-  clearBtn.title = "Clear site data & reload";
-  clearBtn.innerHTML = "<span class='clear-icon-cookie'>&#127850;</span><span class='clear-icon-trash'>&#9940;</span>";
-  clearBtn.addEventListener("click", function(e) {
-    e.stopPropagation();
-    showClearDataMenu(e);
-  });
-  clearBtn.addEventListener("contextmenu", function(e) {
-    e.preventDefault();
-    e.stopPropagation();
-  });
-  container.appendChild(clearBtn);
 }
 
 // ─── Tab Groups ─────────────────────────────────────────────
@@ -1508,7 +1495,7 @@ function clearSiteData(options) {
     if (!origin || !tabId) return;
 
     // Visual feedback
-    var btn = document.querySelector(".clear-site-data-btn");
+    var btn = document.getElementById("toolbar-clear-data");
     if (btn) {
       btn.classList.add("clearing");
       btn.innerHTML = "&#10003;";
@@ -1743,6 +1730,26 @@ function setupClearDataMenu() {
     });
     clearSiteData(opts);
     menu.classList.add("hidden");
+  });
+}
+
+// ─── Toolbar ────────────────────────────────────────────────
+
+function setupToolbar() {
+  // Clear site data button
+  var clearBtn = document.getElementById("toolbar-clear-data");
+  clearBtn.addEventListener("click", function(e) {
+    e.stopPropagation();
+    showClearDataMenu(e);
+  });
+  clearBtn.addEventListener("contextmenu", function(e) {
+    e.preventDefault();
+    e.stopPropagation();
+  });
+
+  // Tidy tab bar button
+  document.getElementById("tidy-tab-bar").addEventListener("click", function() {
+    chrome.runtime.sendMessage({ action: "tidy-tab-bar", windowId: windowId });
   });
 }
 
