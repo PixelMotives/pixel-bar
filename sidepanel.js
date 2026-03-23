@@ -1204,11 +1204,11 @@ function restoreSavedGroup(sg) {
     }
 
     // Not open — create the tabs at the front and group them
-    var tabIds = [];
+    var tabIds = new Array(sg.urls.length);
     var remaining = sg.urls.length;
     sg.urls.forEach(function(url, i) {
       chrome.tabs.create({ url: url, active: false, index: i }, function(tab) {
-        tabIds.push(tab.id);
+        tabIds[i] = tab.id;
         remaining--;
         if (remaining === 0) {
           chrome.tabs.group({ tabIds: tabIds }, function(groupId) {
