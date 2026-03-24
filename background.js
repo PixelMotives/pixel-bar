@@ -111,6 +111,21 @@ chrome.runtime.onMessage.addListener(function(msg, sender, sendResponse) {
       });
     }
   }
+
+  if (msg.action === "focus-group") {
+    chrome.tabGroups.query({ windowId: msg.windowId }, function(groups) {
+      if (chrome.runtime.lastError) return;
+      groups.forEach(function(group) {
+        if (group.id === msg.groupId) {
+          if (group.collapsed) {
+            withRetry(function() { return chrome.tabGroups.update(group.id, { collapsed: false }); });
+          }
+        } else if (!group.collapsed) {
+          withRetry(function() { return chrome.tabGroups.update(group.id, { collapsed: true }); });
+        }
+      });
+    });
+  }
 });
 
 // Retry a promise-returning function when Chrome says tabs are busy

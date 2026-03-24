@@ -1262,3 +1262,61 @@ body {
 .ctx-clear-btn:hover {
   background: rgba(166, 227, 161, 0.12);
 }
+
+/* ─── Focus Mode ──────────────────────────────────────────── */
+
+#tab-groups {
+  display: flex;
+  flex-direction: column;
+}
+
+.tab-group.focused {
+  order: -1;
+}
+
+.tab-group.dimmed,
+.section.dimmed {
+  opacity: 0.3;
+  pointer-events: none;
+  transition: opacity 0.25s ease;
+}
+
+.group-focus-btn.active {
+  opacity: 1 !important;
+  color: #89b4fa !important;
+}
+
+.focus-banner {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 6px 12px;
+  background: rgba(137, 180, 250, 0.1);
+  border: 1px solid rgba(137, 180, 250, 0.2);
+  border-radius: 6px;
+  margin: 0 6px 8px;
+  font-size: 12px;
+  color: #89b4fa;
+  order: -2;
+}
+
+.focus-banner-text {
+  flex: 1;
+  font-weight: 600;
+}
+
+.focus-banner-exit {
+  background: none;
+  border: none;
+  color: #6c7086;
+  font-size: 14px;
+  cursor: pointer;
+  padding: 2px 6px;
+  border-radius: 4px;
+  transition: color 0.15s, background 0.15s;
+}
+
+.focus-banner-exit:hover {
+  color: #cdd6f4;
+  background: rgba(205, 214, 244, 0.1);
+}

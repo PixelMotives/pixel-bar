@@ -40,6 +40,7 @@ var pinnedInGroupIds = {}; // tabId → true (runtime)
 var pinnedInGroupEntries = []; // [{url, groupId}] (persisted for cross-restart recovery)
 var savedGroups = [];
 var expandedBookmarks = {}; // bookmarkNodeId → true
+var focusedGroupId = null; // currently focused group ID, or null
 
 // ─── Init ───────────────────────────────────────────────────
 
@@ -159,12 +160,29 @@ function refresh() {
         return aIdx - bIdx;
       });
 
+      // Auto-exit focus mode if the focused group no longer exists
+      if (focusedGroupId !== null) {
+        var focusedExists = groups.some(function(g) { return g.id === focusedGroupId; });
+        if (!focusedExists) focusedGroupId = null;
+      }
+
       renderPinnedTabs(pinnedTabs);
       renderTabGroups(groups, groupedTabs);
       renderUngroupedTabs(ungroupedTabs);
       renderSavedGroups();
       updateSelectionVisuals();
       attachFaviconErrorHandlers(document);
+
+      // Focus mode: dim non-focused sections
+      var ungroupedSection = document.getElementById("ungrouped-tabs");
+      var savedSection = document.getElementById("saved-groups");
+      if (focusedGroupId !== null) {
+        ungroupedSection.classList.add("dimmed");
+        savedSection.classList.add("dimmed");
+      } else {
+        ungroupedSection.classList.remove("dimmed");
+        savedSection.classList.remove("dimmed");
+      }
     });
   });
 }
@@ -239,6 +257,19 @@ function renderTabGroups(groups, groupedTabs) {
   var container = document.getElementById("tab-groups");
   container.innerHTML = "";
 
+  // Focus mode banner
+  if (focusedGroupId !== null) {
+    var banner = document.createElement("div");
+    banner.className = "focus-banner";
+    banner.innerHTML =
+      "<span class=\"focus-banner-text\">Focus Mode</span>" +
+      "<button class=\"focus-banner-exit\" title=\"Exit focus mode\">&#10005;</button>";
+    banner.querySelector(".focus-banner-exit").addEventListener("click", function() {
+      toggleFocusMode(focusedGroupId);
+    });
+    container.appendChild(banner);
+  }
+
   groups.forEach(function(group) {
     var tabs = groupedTabs[group.id] || [];
     var colorObj = GROUP_COLORS[group.color] || GROUP_COLORS.grey;
@@ -256,7 +287,11 @@ function renderTabGroups(groups, groupedTabs) {
     });
 
     var groupEl = document.createElement("div");
-    groupEl.className = "tab-group" + (isCollapsed ? " collapsed" : "");
+    var isFocused = focusedGroupId === group.id;
+    var isDimmed = focusedGroupId !== null && !isFocused;
+    groupEl.className = "tab-group" +
+      (isDimmed ? " collapsed dimmed" : (isCollapsed && !isFocused ? " collapsed" : "")) +
+      (isFocused ? " focused" : "");
     groupEl.setAttribute("data-group-id", group.id);
 
     // Header
@@ -271,6 +306,7 @@ function renderTabGroups(groups, groupedTabs) {
       "<span class=\"group-title\">" + escapeHTML(group.title || "Unnamed") + "</span>" +
       "<span class=\"group-count\">" + tabs.length + "</span>" +
       "<span class=\"group-actions\">" +
+        "<button class=\"group-action-btn group-focus-btn" + (focusedGroupId === group.id ? " active" : "") + "\" title=\"" + (focusedGroupId === group.id ? "Exit focus mode" : "Focus on this group") + "\">&#9678;</button>" +
         "<button class=\"group-action-btn group-save-btn\" title=\"Save group snapshot\">&#128190;</button>" +
         "<button class=\"group-action-btn group-restore-btn\" title=\"Restore saved tabs\" style=\"display:none\">&#8634;</button>" +
         "<button class=\"group-action-btn group-rename-btn\" title=\"Rename group\">&#9998;</button>" +
@@ -313,6 +349,11 @@ function renderTabGroups(groups, groupedTabs) {
     header.querySelector(".group-close-btn").addEventListener("click", function(e) {
       e.stopPropagation();
       closeAndSaveGroup(group, tabs);
+    });
+
+    header.querySelector(".group-focus-btn").addEventListener("click", function(e) {
+      e.stopPropagation();
+      toggleFocusMode(group.id);
     });
 
     // Drag for group reorder
@@ -1317,12 +1358,12 @@ function restoreGroupSnapshotStep2(group, sg) {
 
     // Create only the truly missing tabs at the top of the group
     var groupStartIndex = Math.min.apply(null, currentTabs.map(function(t) { return t.index; }));
-    var newTabIds = [];
+    var newTabIds = new Array(missingUrls.length);
     var remaining = missingUrls.length;
 
     missingUrls.forEach(function(url, i) {
       chrome.tabs.create({ url: url, active: false, index: groupStartIndex + i }, function(tab) {
-        newTabIds.push(tab.id);
+        newTabIds[i] = tab.id;
         remaining--;
         if (remaining === 0) {
           chrome.tabs.group({ tabIds: newTabIds, groupId: group.id }, function() {
@@ -2420,6 +2461,28 @@ function toggleGroupCollapse(groupId, groupEl) {
   chrome.storage.local.set(makeObj(STORAGE_KEYS.collapsedGroups, collapsedGroups));
 }
 
+// ─── Focus Mode ─────────────────────────────────────────────
+
+function toggleFocusMode(groupId) {
+  if (focusedGroupId === groupId) {
+    focusedGroupId = null;
+    chrome.runtime.sendMessage({ action: "unfocus-group", windowId: windowId });
+  } else {
+    focusedGroupId = groupId;
+    collapsedGroups[groupId] = false;
+    chrome.storage.local.set(makeObj(STORAGE_KEYS.collapsedGroups, collapsedGroups));
+    chrome.runtime.sendMessage({ action: "focus-group", groupId: groupId, windowId: windowId });
+    // Activate first tab in the focused group
+    chrome.tabs.query({ groupId: groupId }, function(tabs) {
+      if (tabs && tabs.length > 0) {
+        tabs.sort(function(a, b) { return a.index - b.index; });
+        chrome.tabs.update(tabs[0].id, { active: true });
+      }
+    });
+  }
+  scheduleRefresh();
+}
+
 // ─── Chrome Listeners ──────────────────────────────────────
 
 function setupChromeListeners() {
@@ -2442,7 +2505,10 @@ function setupChromeListeners() {
   chrome.tabs.onDetached.addListener(scheduleRefresh);
 
   chrome.tabGroups.onCreated.addListener(scheduleRefresh);
-  chrome.tabGroups.onRemoved.addListener(scheduleRefresh);
+  chrome.tabGroups.onRemoved.addListener(function(groupId) {
+    if (focusedGroupId === groupId) focusedGroupId = null;
+    scheduleRefresh();
+  });
   chrome.tabGroups.onUpdated.addListener(scheduleRefresh);
   chrome.tabGroups.onMoved.addListener(scheduleRefresh);
 
