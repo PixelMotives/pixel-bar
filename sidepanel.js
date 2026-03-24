@@ -22,7 +22,9 @@ var STORAGE_KEYS = {
   activeView:        "pb_active_view",
   pinnedInGroup:     "pb_pinned_in_group",
   savedGroups:       "pb_saved_groups",
-  expandedBookmarks: "pb_expanded_bookmarks"
+  expandedBookmarks: "pb_expanded_bookmarks",
+  categories:        "pb_categories",
+  groupCategories:   "pb_group_categories"
 };
 
 // ─── State ──────────────────────────────────────────────────
@@ -41,6 +43,9 @@ var pinnedInGroupEntries = []; // [{url, groupId}] (persisted for cross-restart 
 var savedGroups = [];
 var expandedBookmarks = {}; // bookmarkNodeId → true
 var focusedGroupId = null; // currently focused group ID, or null
+var categories = []; // [{id, name, collapsed}]
+var groupCategoryMap = {}; // groupId → categoryId (runtime)
+var persistedCategoryAssignments = []; // [{groupName, groupColor, categoryId}]
 
 // ─── Init ───────────────────────────────────────────────────
 
@@ -54,7 +59,8 @@ document.addEventListener("DOMContentLoaded", function() {
       [STORAGE_KEYS.customNames, STORAGE_KEYS.tabHomes,
        STORAGE_KEYS.collapsedSections, STORAGE_KEYS.collapsedGroups,
        STORAGE_KEYS.activeView, STORAGE_KEYS.pinnedInGroup,
-       STORAGE_KEYS.savedGroups, STORAGE_KEYS.expandedBookmarks],
+       STORAGE_KEYS.savedGroups, STORAGE_KEYS.expandedBookmarks,
+       STORAGE_KEYS.categories, STORAGE_KEYS.groupCategories],
       function(data) {
         customNames       = data[STORAGE_KEYS.customNames] || {};
         homeEntries       = data[STORAGE_KEYS.tabHomes] || [];
@@ -66,6 +72,9 @@ document.addEventListener("DOMContentLoaded", function() {
         if (!Array.isArray(pinnedInGroupEntries)) pinnedInGroupEntries = [];
         savedGroups = data[STORAGE_KEYS.savedGroups] || [];
         expandedBookmarks = data[STORAGE_KEYS.expandedBookmarks] || {};
+        categories = data[STORAGE_KEYS.categories] || [];
+        var gc = data[STORAGE_KEYS.groupCategories] || {};
+        persistedCategoryAssignments = gc.assignments || [];
         applySectionCollapseStates();
         setupViewNav();
         setupBookmarksToolbar();
@@ -135,6 +144,8 @@ function refresh() {
       rebuildTabHomes(tabs);
       // Rebuild pinned-in-group tab IDs (handles restart recovery)
       rebuildPinnedInGroupIds(tabs);
+      // Rebuild group-to-category map (handles restart recovery)
+      rebuildGroupCategoryMap(groups);
 
       var pinnedTabs = [];
       var groupedTabs = {};
@@ -270,208 +281,343 @@ function renderTabGroups(groups, groupedTabs) {
     container.appendChild(banner);
   }
 
+  // Partition groups by category
+  var catGroups = {}; // categoryId → [group, ...]
+  var uncategorized = [];
+  categories.forEach(function(cat) { catGroups[cat.id] = []; });
   groups.forEach(function(group) {
-    var tabs = groupedTabs[group.id] || [];
-    var colorObj = GROUP_COLORS[group.color] || GROUP_COLORS.grey;
-    var isCollapsed = collapsedGroups[group.id] === true;
+    var catId = groupCategoryMap[group.id];
+    if (catId && catGroups[catId]) {
+      catGroups[catId].push(group);
+    } else {
+      uncategorized.push(group);
+    }
+  });
 
-    // Split tabs into pinned-in-group and normal
-    var pinnedTabs = [];
-    var normalTabs = [];
-    tabs.forEach(function(tab) {
-      if (isTabPinnedInGroup(tab)) {
-        pinnedTabs.push(tab);
-      } else {
-        normalTabs.push(tab);
-      }
-    });
+  // Render categories
+  categories.forEach(function(cat) {
+    var catGroups_ = catGroups[cat.id] || [];
+    var catEl = document.createElement("div");
+    catEl.className = "category" + (cat.collapsed ? " collapsed" : "");
+    catEl.setAttribute("data-category-id", cat.id);
 
-    var groupEl = document.createElement("div");
-    var isFocused = focusedGroupId === group.id;
-    var isDimmed = focusedGroupId !== null && !isFocused;
-    groupEl.className = "tab-group" +
-      (isDimmed ? " collapsed dimmed" : (isCollapsed && !isFocused ? " collapsed" : "")) +
-      (isFocused ? " focused" : "");
-    groupEl.setAttribute("data-group-id", group.id);
-
-    // Header
-    var header = document.createElement("div");
-    header.className = "group-header";
-    header.draggable = true;
-    header.setAttribute("data-group-id", group.id);
-    header.style.background = colorObj.bg;
-    header.style.color = colorObj.text;
-    header.innerHTML =
-      "<span class=\"group-collapse\">&#9660;</span>" +
-      "<span class=\"group-title\">" + escapeHTML(group.title || "Unnamed") + "</span>" +
-      "<span class=\"group-count\">" + tabs.length + "</span>" +
-      "<span class=\"group-actions\">" +
-        "<button class=\"group-action-btn group-focus-btn" + (focusedGroupId === group.id ? " active" : "") + "\" title=\"" + (focusedGroupId === group.id ? "Exit focus mode" : "Focus on this group") + "\">&#9678;</button>" +
-        "<button class=\"group-action-btn group-save-btn\" title=\"Save group snapshot\">&#128190;</button>" +
-        "<button class=\"group-action-btn group-restore-btn\" title=\"Restore saved tabs\" style=\"display:none\">&#8634;</button>" +
-        "<button class=\"group-action-btn group-rename-btn\" title=\"Rename group\">&#9998;</button>" +
-        "<button class=\"group-action-btn group-close-btn\" title=\"Close &amp; save group\">&#10005;</button>" +
+    var catHeader = document.createElement("div");
+    catHeader.className = "category-header";
+    catHeader.draggable = true;
+    catHeader.innerHTML =
+      "<span class=\"category-collapse\">&#9660;</span>" +
+      "<span class=\"category-title\">" + escapeHTML(cat.name) + "</span>" +
+      "<span class=\"category-count\">" + catGroups_.length + "</span>" +
+      "<span class=\"category-actions\">" +
+        "<button class=\"category-action-btn category-rename-btn\" title=\"Rename\">&#9998;</button>" +
+        "<button class=\"category-action-btn category-delete-btn\" title=\"Delete\">&#10005;</button>" +
       "</span>";
 
-    header.addEventListener("click", function(e) {
-      if (e.target.closest(".group-actions")) return;
-      toggleGroupCollapse(group.id, groupEl);
+    // Toggle collapse
+    catHeader.addEventListener("click", function(e) {
+      if (e.target.closest(".category-actions")) return;
+      catEl.classList.toggle("collapsed");
+      cat.collapsed = catEl.classList.contains("collapsed");
+      persistCategories();
     });
 
-    header.addEventListener("contextmenu", function(e) {
-      showGroupContextMenu(e, group, tabs);
-    });
-
-    header.querySelector(".group-save-btn").addEventListener("click", function(e) {
+    // Rename
+    catHeader.querySelector(".category-rename-btn").addEventListener("click", function(e) {
       e.stopPropagation();
-      saveTabGroup(group, tabs);
-      // Show restore button after saving
-      var restoreBtn = header.querySelector(".group-restore-btn");
-      if (restoreBtn) restoreBtn.style.display = "";
+      startCategoryRename(cat, catHeader.querySelector(".category-title"));
     });
 
-    // Show restore button if a saved snapshot exists for this group
-    var savedSnapshot = findSavedGroup(group);
-    var restoreBtn = header.querySelector(".group-restore-btn");
-    if (savedSnapshot && restoreBtn) {
-      restoreBtn.style.display = "";
-    }
-    restoreBtn.addEventListener("click", function(e) {
+    // Delete
+    catHeader.querySelector(".category-delete-btn").addEventListener("click", function(e) {
       e.stopPropagation();
-      restoreGroupSnapshot(group);
+      deleteCategory(cat.id);
     });
 
-    header.querySelector(".group-rename-btn").addEventListener("click", function(e) {
-      e.stopPropagation();
-      startGroupRename(group, header.querySelector(".group-title"));
-    });
-
-    header.querySelector(".group-close-btn").addEventListener("click", function(e) {
-      e.stopPropagation();
-      closeAndSaveGroup(group, tabs);
-    });
-
-    header.querySelector(".group-focus-btn").addEventListener("click", function(e) {
-      e.stopPropagation();
-      toggleFocusMode(group.id);
-    });
-
-    // Drag for group reorder
-    header.addEventListener("dragstart", function(e) {
-      dragData = { type: "group", groupId: group.id };
+    // Category drag (reorder categories)
+    catHeader.addEventListener("dragstart", function(e) {
+      dragData = { type: "category", categoryId: cat.id };
       e.dataTransfer.effectAllowed = "move";
-      header.classList.add("dragging");
+      catHeader.classList.add("dragging");
     });
-    header.addEventListener("dragend", function() {
-      header.classList.remove("dragging");
+    catHeader.addEventListener("dragend", function() {
+      catHeader.classList.remove("dragging");
       clearDropIndicators();
       dragData = null;
     });
-    header.addEventListener("dragover", function(e) { handleGroupDragOver(e, header); });
-    header.addEventListener("dragleave", function() { clearDropIndicators(); });
-    header.addEventListener("drop", function(e) { handleGroupDrop(e, group); });
-
-    // Group top area: header + pinned tabs share a colored background
-    var groupTop = document.createElement("div");
-    groupTop.className = "group-top";
-    groupTop.style.background = colorObj.bg + "26"; // ~15% opacity via hex alpha
-    groupTop.appendChild(header);
-
-    // Pinned-in-group tabs — compact favicon row
-    if (pinnedTabs.length > 0) {
-      var pinnedRow = document.createElement("div");
-      pinnedRow.className = "group-pinned-tabs";
-      pinnedTabs.forEach(function(tab) {
-        var el = document.createElement("div");
-        el.className = "group-pinned-tab" + (tab.active ? " active" : "");
-        el.title = getTabDisplayName(tab);
-        el.setAttribute("data-tab-id", tab.id);
-        el.draggable = true;
-        el.innerHTML = faviconHTML(tab, true);
-        if (tab.audible) {
-          el.innerHTML += "<span class=\"audio-indicator\">&#128266;</span>";
-        }
-        el.addEventListener("click", function() { activateTab(tab.id); });
-        el.addEventListener("auxclick", function(e) {
-          if (e.button === 1) closeTab(tab.id);
-        });
-        el.addEventListener("contextmenu", function(e) {
-          showContextMenu(e, tab);
-        });
-
-        // Drag-and-drop for reordering within pinned-in-group row
-        el.addEventListener("dragstart", function(e) {
-          dragData = { type: "group-pinned", tabId: tab.id, groupId: group.id, index: tab.index };
-          e.dataTransfer.effectAllowed = "move";
-          el.classList.add("dragging");
-        });
-        el.addEventListener("dragend", function() {
-          el.classList.remove("dragging");
-          clearDropIndicators();
-          dragData = null;
-        });
-        el.addEventListener("dragover", function(e) {
-          if (!dragData || dragData.type !== "group-pinned") return;
-          if (dragData.groupId !== group.id) return;
-          e.preventDefault();
-          e.dataTransfer.dropEffect = "move";
-          clearDropIndicators();
-          var rect = el.getBoundingClientRect();
-          var midX = rect.left + rect.width / 2;
-          if (e.clientX < midX) {
-            el.classList.add("drop-left");
-          } else {
-            el.classList.add("drop-right");
-          }
-        });
-        el.addEventListener("dragleave", function() { clearDropIndicators(); });
-        el.addEventListener("drop", function(e) {
-          e.preventDefault();
-          e.stopPropagation();
-          clearDropIndicators();
-          if (!dragData || dragData.type !== "group-pinned") return;
-          if (dragData.tabId === tab.id) return;
-          if (dragData.groupId !== group.id) return;
-          var rect = el.getBoundingClientRect();
-          var midX = rect.left + rect.width / 2;
-          var targetIndex = e.clientX < midX ? tab.index : tab.index + 1;
-          chrome.tabs.move(dragData.tabId, { index: targetIndex }, function() {
-            scheduleRefresh();
-          });
-        });
-
-        pinnedRow.appendChild(el);
-      });
-      groupTop.appendChild(pinnedRow);
-    }
-
-    groupEl.appendChild(groupTop);
-
-    // Body wrap for collapse animation (single child needed for grid 0fr trick)
-    var bodyWrap = document.createElement("div");
-    bodyWrap.className = "group-body-wrap";
-
-    var body = document.createElement("div");
-    body.className = "group-body tab-list";
-    body.setAttribute("data-group-id", group.id);
-    normalTabs.forEach(function(tab) {
-      body.appendChild(createTabElement(tab));
-    });
-
-    // Drop zone for tabs dragged into this group
-    body.addEventListener("dragover", function(e) { handleTabListDragOver(e, body); });
-    body.addEventListener("dragleave", function(e) {
-      if (!body.contains(e.relatedTarget)) {
-        body.classList.remove("drop-target");
-        clearDropIndicators();
+    catHeader.addEventListener("dragover", function(e) {
+      e.preventDefault();
+      e.dataTransfer.dropEffect = "move";
+      clearDropIndicators();
+      var rect = catHeader.getBoundingClientRect();
+      var midY = rect.top + rect.height / 2;
+      if (dragData && dragData.type === "category") {
+        if (e.clientY < midY) catHeader.classList.add("drop-above");
+        else catHeader.classList.add("drop-below");
+      } else if (dragData && dragData.type === "group") {
+        // Dropping a group onto a category header assigns it
+        catHeader.classList.add("drop-below");
       }
     });
-    body.addEventListener("drop", function(e) { handleTabListDrop(e, group.id); });
+    catHeader.addEventListener("dragleave", function() { clearDropIndicators(); });
+    catHeader.addEventListener("drop", function(e) {
+      e.preventDefault();
+      e.stopPropagation();
+      clearDropIndicators();
+      if (dragData && dragData.type === "category") {
+        // Reorder categories
+        var fromIdx = categories.findIndex(function(c) { return c.id === dragData.categoryId; });
+        var toIdx = categories.findIndex(function(c) { return c.id === cat.id; });
+        if (fromIdx === -1 || fromIdx === toIdx) return;
+        var rect = catHeader.getBoundingClientRect();
+        var midY = rect.top + rect.height / 2;
+        var targetIdx = e.clientY < midY ? toIdx : toIdx + 1;
+        var item = categories.splice(fromIdx, 1)[0];
+        if (targetIdx > fromIdx) targetIdx--;
+        categories.splice(targetIdx, 0, item);
+        persistCategories();
+        scheduleRefresh();
+      } else if (dragData && dragData.type === "group") {
+        // Assign group to this category
+        assignGroupToCategory(dragData.groupId, cat.id);
+      }
+    });
 
-    bodyWrap.appendChild(body);
-    groupEl.appendChild(bodyWrap);
-    container.appendChild(groupEl);
+    catEl.appendChild(catHeader);
+
+    // Category body
+    var catBodyWrap = document.createElement("div");
+    catBodyWrap.className = "category-body-wrap";
+    var catBody = document.createElement("div");
+    catBody.className = "category-body";
+
+    // Drop zone for groups dragged into this category body
+    catBody.addEventListener("dragover", function(e) {
+      if (!dragData || dragData.type !== "group") return;
+      e.preventDefault();
+      e.dataTransfer.dropEffect = "move";
+      catBody.classList.add("drop-target");
+    });
+    catBody.addEventListener("dragleave", function(e) {
+      if (!catBody.contains(e.relatedTarget)) catBody.classList.remove("drop-target");
+    });
+    catBody.addEventListener("drop", function(e) {
+      e.preventDefault();
+      e.stopPropagation();
+      catBody.classList.remove("drop-target");
+      if (dragData && dragData.type === "group") {
+        assignGroupToCategory(dragData.groupId, cat.id);
+      }
+    });
+
+    catGroups_.forEach(function(group) {
+      catBody.appendChild(renderSingleGroup(group, groupedTabs));
+    });
+
+    catBodyWrap.appendChild(catBody);
+    catEl.appendChild(catBodyWrap);
+    container.appendChild(catEl);
   });
+
+  // Render uncategorized groups
+  uncategorized.forEach(function(group) {
+    container.appendChild(renderSingleGroup(group, groupedTabs));
+  });
+}
+
+function renderSingleGroup(group, groupedTabs) {
+  var tabs = groupedTabs[group.id] || [];
+  var colorObj = GROUP_COLORS[group.color] || GROUP_COLORS.grey;
+  var isCollapsed = collapsedGroups[group.id] === true;
+
+  // Split tabs into pinned-in-group and normal
+  var pinnedTabs = [];
+  var normalTabs = [];
+  tabs.forEach(function(tab) {
+    if (isTabPinnedInGroup(tab)) {
+      pinnedTabs.push(tab);
+    } else {
+      normalTabs.push(tab);
+    }
+  });
+
+  var groupEl = document.createElement("div");
+  var isFocused = focusedGroupId === group.id;
+  var isDimmed = focusedGroupId !== null && !isFocused;
+  groupEl.className = "tab-group" +
+    (isDimmed ? " collapsed dimmed" : (isCollapsed && !isFocused ? " collapsed" : "")) +
+    (isFocused ? " focused" : "");
+  groupEl.setAttribute("data-group-id", group.id);
+
+  // Header
+  var header = document.createElement("div");
+  header.className = "group-header";
+  header.draggable = true;
+  header.setAttribute("data-group-id", group.id);
+  header.style.background = colorObj.bg;
+  header.style.color = colorObj.text;
+  header.innerHTML =
+    "<span class=\"group-collapse\">&#9660;</span>" +
+    "<span class=\"group-title\">" + escapeHTML(group.title || "Unnamed") + "</span>" +
+    "<span class=\"group-count\">" + tabs.length + "</span>" +
+    "<span class=\"group-actions\">" +
+      "<button class=\"group-action-btn group-focus-btn" + (focusedGroupId === group.id ? " active" : "") + "\" title=\"" + (focusedGroupId === group.id ? "Exit focus mode" : "Focus on this group") + "\">&#9678;</button>" +
+      "<button class=\"group-action-btn group-save-btn\" title=\"Save group snapshot\">&#128190;</button>" +
+      "<button class=\"group-action-btn group-restore-btn\" title=\"Restore saved tabs\" style=\"display:none\">&#8634;</button>" +
+      "<button class=\"group-action-btn group-rename-btn\" title=\"Rename group\">&#9998;</button>" +
+      "<button class=\"group-action-btn group-close-btn\" title=\"Close &amp; save group\">&#10005;</button>" +
+    "</span>";
+
+  header.addEventListener("click", function(e) {
+    if (e.target.closest(".group-actions")) return;
+    toggleGroupCollapse(group.id, groupEl);
+  });
+
+  header.addEventListener("contextmenu", function(e) {
+    showGroupContextMenu(e, group, tabs);
+  });
+
+  header.querySelector(".group-save-btn").addEventListener("click", function(e) {
+    e.stopPropagation();
+    saveTabGroup(group, tabs);
+    var restoreBtn = header.querySelector(".group-restore-btn");
+    if (restoreBtn) restoreBtn.style.display = "";
+  });
+
+  var savedSnapshot = findSavedGroup(group);
+  var restoreBtn = header.querySelector(".group-restore-btn");
+  if (savedSnapshot && restoreBtn) {
+    restoreBtn.style.display = "";
+  }
+  restoreBtn.addEventListener("click", function(e) {
+    e.stopPropagation();
+    restoreGroupSnapshot(group);
+  });
+
+  header.querySelector(".group-rename-btn").addEventListener("click", function(e) {
+    e.stopPropagation();
+    startGroupRename(group, header.querySelector(".group-title"));
+  });
+
+  header.querySelector(".group-close-btn").addEventListener("click", function(e) {
+    e.stopPropagation();
+    closeAndSaveGroup(group, tabs);
+  });
+
+  header.querySelector(".group-focus-btn").addEventListener("click", function(e) {
+    e.stopPropagation();
+    toggleFocusMode(group.id);
+  });
+
+  // Drag for group reorder
+  header.addEventListener("dragstart", function(e) {
+    dragData = { type: "group", groupId: group.id };
+    e.dataTransfer.effectAllowed = "move";
+    header.classList.add("dragging");
+  });
+  header.addEventListener("dragend", function() {
+    header.classList.remove("dragging");
+    clearDropIndicators();
+    dragData = null;
+  });
+  header.addEventListener("dragover", function(e) { handleGroupDragOver(e, header); });
+  header.addEventListener("dragleave", function() { clearDropIndicators(); });
+  header.addEventListener("drop", function(e) { handleGroupDrop(e, group); });
+
+  // Group top area: header + pinned tabs share a colored background
+  var groupTop = document.createElement("div");
+  groupTop.className = "group-top";
+  groupTop.style.background = colorObj.bg + "26";
+  groupTop.appendChild(header);
+
+  // Pinned-in-group tabs — compact favicon row
+  if (pinnedTabs.length > 0) {
+    var pinnedRow = document.createElement("div");
+    pinnedRow.className = "group-pinned-tabs";
+    pinnedTabs.forEach(function(tab) {
+      var el = document.createElement("div");
+      el.className = "group-pinned-tab" + (tab.active ? " active" : "");
+      el.title = getTabDisplayName(tab);
+      el.setAttribute("data-tab-id", tab.id);
+      el.draggable = true;
+      el.innerHTML = faviconHTML(tab, true);
+      if (tab.audible) {
+        el.innerHTML += "<span class=\"audio-indicator\">&#128266;</span>";
+      }
+      el.addEventListener("click", function() { activateTab(tab.id); });
+      el.addEventListener("auxclick", function(e) {
+        if (e.button === 1) closeTab(tab.id);
+      });
+      el.addEventListener("contextmenu", function(e) {
+        showContextMenu(e, tab);
+      });
+
+      el.addEventListener("dragstart", function(e) {
+        dragData = { type: "group-pinned", tabId: tab.id, groupId: group.id, index: tab.index };
+        e.dataTransfer.effectAllowed = "move";
+        el.classList.add("dragging");
+      });
+      el.addEventListener("dragend", function() {
+        el.classList.remove("dragging");
+        clearDropIndicators();
+        dragData = null;
+      });
+      el.addEventListener("dragover", function(e) {
+        if (!dragData || dragData.type !== "group-pinned") return;
+        if (dragData.groupId !== group.id) return;
+        e.preventDefault();
+        e.dataTransfer.dropEffect = "move";
+        clearDropIndicators();
+        var rect = el.getBoundingClientRect();
+        var midX = rect.left + rect.width / 2;
+        if (e.clientX < midX) el.classList.add("drop-left");
+        else el.classList.add("drop-right");
+      });
+      el.addEventListener("dragleave", function() { clearDropIndicators(); });
+      el.addEventListener("drop", function(e) {
+        e.preventDefault();
+        e.stopPropagation();
+        clearDropIndicators();
+        if (!dragData || dragData.type !== "group-pinned") return;
+        if (dragData.tabId === tab.id) return;
+        if (dragData.groupId !== group.id) return;
+        var rect = el.getBoundingClientRect();
+        var midX = rect.left + rect.width / 2;
+        var targetIndex = e.clientX < midX ? tab.index : tab.index + 1;
+        chrome.tabs.move(dragData.tabId, { index: targetIndex }, function() {
+          scheduleRefresh();
+        });
+      });
+
+      pinnedRow.appendChild(el);
+    });
+    groupTop.appendChild(pinnedRow);
+  }
+
+  groupEl.appendChild(groupTop);
+
+  // Body wrap for collapse animation
+  var bodyWrap = document.createElement("div");
+  bodyWrap.className = "group-body-wrap";
+
+  var body = document.createElement("div");
+  body.className = "group-body tab-list";
+  body.setAttribute("data-group-id", group.id);
+  normalTabs.forEach(function(tab) {
+    body.appendChild(createTabElement(tab));
+  });
+
+  body.addEventListener("dragover", function(e) { handleTabListDragOver(e, body); });
+  body.addEventListener("dragleave", function(e) {
+    if (!body.contains(e.relatedTarget)) {
+      body.classList.remove("drop-target");
+      clearDropIndicators();
+    }
+  });
+  body.addEventListener("drop", function(e) { handleTabListDrop(e, group.id); });
+
+  bodyWrap.appendChild(body);
+  groupEl.appendChild(bodyWrap);
+  return groupEl;
 }
 
 // ─── Ungrouped Tabs ─────────────────────────────────────────
@@ -972,6 +1118,44 @@ function showGroupContextMenu(e, group, tabs) {
     }
   };
   nameInput.onclick = function(ev) { ev.stopPropagation(); };
+
+  // Build "Move to Category" submenu
+  var catList = document.getElementById("ctx-category-list");
+  catList.innerHTML = "";
+  catList.classList.add("hidden");
+  var currentCatId = groupCategoryMap[group.id] || null;
+
+  // "None" option to remove from category
+  var noneItem = document.createElement("div");
+  noneItem.className = "ctx-item" + (!currentCatId ? " active" : "");
+  noneItem.textContent = "None";
+  noneItem.addEventListener("click", function(ev) {
+    ev.stopPropagation();
+    assignGroupToCategory(group.id, null);
+    menu.classList.add("hidden");
+  });
+  catList.appendChild(noneItem);
+
+  categories.forEach(function(cat) {
+    var item = document.createElement("div");
+    item.className = "ctx-item" + (currentCatId === cat.id ? " active" : "");
+    item.textContent = cat.name;
+    item.addEventListener("click", function(ev) {
+      ev.stopPropagation();
+      assignGroupToCategory(group.id, cat.id);
+      menu.classList.add("hidden");
+    });
+    catList.appendChild(item);
+  });
+
+  // Toggle expand
+  var catTrigger = menu.querySelector("[data-group-action='move-to-category']");
+  var catArrow = catTrigger.querySelector(".ctx-arrow");
+  catTrigger.onclick = function(ev) {
+    ev.stopPropagation();
+    catList.classList.toggle("hidden");
+    catArrow.classList.toggle("expanded");
+  };
 
   // Position and show
   positionMenu(menu, e.clientX, e.clientY);
@@ -1838,6 +2022,42 @@ function startGroupRename(group, titleEl) {
   input.addEventListener("blur", onBlur);
 }
 
+function startCategoryRename(cat, titleEl) {
+  var container = document.getElementById("rename-input-container");
+  var input = document.getElementById("rename-input");
+  var rect = titleEl.getBoundingClientRect();
+
+  container.classList.remove("hidden");
+  container.style.top = rect.top + "px";
+  container.style.left = rect.left + "px";
+  container.style.width = rect.width + "px";
+
+  input.value = cat.name || "";
+  input.focus();
+  input.select();
+
+  function finish(save) {
+    container.classList.add("hidden");
+    input.removeEventListener("keydown", onKey);
+    input.removeEventListener("blur", onBlur);
+    if (save) {
+      cat.name = input.value.trim() || "Unnamed";
+      persistCategories();
+      scheduleRefresh();
+    }
+  }
+
+  function onKey(e) {
+    if (e.key === "Enter") { finish(true); }
+    else if (e.key === "Escape") { finish(false); }
+  }
+
+  function onBlur() { finish(true); }
+
+  input.addEventListener("keydown", onKey);
+  input.addEventListener("blur", onBlur);
+}
+
 // ─── Pinned in Group ────────────────────────────────────────
 
 function isTabPinnedInGroup(tab) {
@@ -1902,6 +2122,77 @@ function rebuildPinnedInGroupIds(tabs) {
       }
     });
   }
+}
+
+// ─── Categories ─────────────────────────────────────────────
+
+function persistCategories() {
+  chrome.storage.local.set(makeObj(STORAGE_KEYS.categories, categories));
+}
+
+function persistGroupCategories(groups) {
+  // Build persisted assignments from current runtime map + group info
+  var assignments = [];
+  groups.forEach(function(g) {
+    var catId = groupCategoryMap[g.id];
+    if (catId) {
+      assignments.push({ groupName: g.title || "", groupColor: g.color || "grey", categoryId: catId });
+    }
+  });
+  persistedCategoryAssignments = assignments;
+  chrome.storage.local.set(makeObj(STORAGE_KEYS.groupCategories, { assignments: assignments }));
+}
+
+function rebuildGroupCategoryMap(groups) {
+  // Match persisted name+color assignments to current group IDs
+  if (persistedCategoryAssignments.length === 0) return;
+  var validCatIds = {};
+  categories.forEach(function(c) { validCatIds[c.id] = true; });
+  var claimed = {};
+  persistedCategoryAssignments.forEach(function(pa) {
+    if (!validCatIds[pa.categoryId]) return;
+    for (var i = 0; i < groups.length; i++) {
+      var g = groups[i];
+      if (!claimed[g.id] && (g.title || "") === pa.groupName && (g.color || "grey") === pa.groupColor) {
+        groupCategoryMap[g.id] = pa.categoryId;
+        claimed[g.id] = true;
+        break;
+      }
+    }
+  });
+}
+
+function createCategory(name) {
+  var cat = { id: "cat_" + Date.now(), name: name, collapsed: false };
+  categories.push(cat);
+  persistCategories();
+  scheduleRefresh();
+  return cat;
+}
+
+function deleteCategory(catId) {
+  categories = categories.filter(function(c) { return c.id !== catId; });
+  // Unassign all groups from this category
+  Object.keys(groupCategoryMap).forEach(function(gid) {
+    if (groupCategoryMap[gid] === catId) delete groupCategoryMap[gid];
+  });
+  persistCategories();
+  chrome.tabGroups.query({ windowId: windowId }, function(groups) {
+    persistGroupCategories(groups);
+  });
+  scheduleRefresh();
+}
+
+function assignGroupToCategory(groupId, catId) {
+  if (catId) {
+    groupCategoryMap[groupId] = catId;
+  } else {
+    delete groupCategoryMap[groupId];
+  }
+  chrome.tabGroups.query({ windowId: windowId }, function(groups) {
+    persistGroupCategories(groups);
+  });
+  scheduleRefresh();
 }
 
 function enforcePinnedPosition(groupId) {
@@ -2316,6 +2607,16 @@ function setupToolbar() {
   // Merge duplicates button
   document.getElementById("merge-duplicates").addEventListener("click", function() {
     mergeDuplicateGroups();
+  });
+
+  // Add category
+  document.getElementById("add-category").addEventListener("click", function() {
+    var cat = createCategory("New Category");
+    // Start rename after render
+    setTimeout(function() {
+      var titleEl = document.querySelector("[data-category-id=\"" + cat.id + "\"] .category-title");
+      if (titleEl) startCategoryRename(cat, titleEl);
+    }, 100);
   });
 
   // Close all ungrouped tabs
