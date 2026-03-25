@@ -1432,15 +1432,18 @@ function restoreSavedGroup(sg) {
     var tabIds = [];
     var createNext = function(i) {
       if (i >= sg.urls.length) {
-        chrome.tabs.group({ tabIds: tabIds }, function(groupId) {
-          chrome.tabGroups.update(groupId, {
-            title: sg.name,
-            color: sg.color
+        // Move tabs to the front, then group them
+        chrome.tabs.move(tabIds, { index: 0 }, function() {
+          chrome.tabs.group({ tabIds: tabIds }, function(groupId) {
+            chrome.tabGroups.update(groupId, {
+              title: sg.name,
+              color: sg.color
+            });
+            chrome.tabs.update(tabIds[0], { active: true }, function() {
+              chrome.runtime.sendMessage({ action: "tidy-tab-bar", windowId: windowId });
+            });
+            scheduleRefresh();
           });
-          chrome.tabs.update(tabIds[0], { active: true }, function() {
-            chrome.runtime.sendMessage({ action: "tidy-tab-bar", windowId: windowId });
-          });
-          scheduleRefresh();
         });
         return;
       }
