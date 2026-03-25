@@ -35,16 +35,33 @@ A sidebar extension for Chrome that replaces the need for horizontal tabs with a
   - Reload, Duplicate, Pin/Unpin, Pin in Group/Unpin in Group, Mute/Unmute
   - Close, Close Other Tabs
 
+### Group Categories
+- Organize tab groups into custom categories (e.g. "In Progress", "In Review", "Blocked")
+- Create categories via "+ Category" toolbar button
+- Drag tab groups onto category headers or bodies to assign
+- Right-click a group → "Move to Category" submenu
+- Collapsible, renameable, deletable categories
+- Drag categories to reorder
+- Uncategorized groups appear below all categories
+
+### Focus Mode
+- Click the ◎ icon on any group header to enter focus mode
+- Focused group expands and moves to the top, all others collapse and dim
+- Native tab groups also collapse
+- Exit via the "Focus Mode" banner or clicking the icon again
+- Auto-exits when the focused group is closed
+
 ### Tab Group Management
 - Right-click a group header for a context menu with:
   - Inline rename field (focused automatically)
   - Color picker with all 9 Chrome group colors
   - New Tab in Group
   - Move Group to New Window
+  - Move to Category (with submenu)
   - Save Group, Close & Save Group
   - Ungroup (keeps tabs open), Delete Group (closes tabs)
 - Creating a new group opens the rename menu automatically
-- Group header hover actions: save, restore, rename, close
+- Group header hover actions: focus, save, restore, rename, close
 
 ### Saved Groups
 - Save tab group snapshots (name, color, URLs) for later restoration
@@ -69,6 +86,7 @@ A sidebar extension for Chrome that replaces the need for horizontal tabs with a
 - Dedicated utility row between pinned tabs and view navigation
 - **Tidy the Tabs** — Collapse all native tab groups, move ungrouped tabs to the end, and collapse sidebar groups
 - **Merge Dupes** — Merge tab groups with matching name and color, deduplicate URLs, close ungrouped tabs already in a group
+- **+ Category** — Create a new category to organize tab groups
 - **Close Ungrouped** — Trashcan button on the Ungrouped Tabs header to close all ungrouped tabs
 - **Auto-collapse** — Switching tabs automatically collapses other native tab groups, keeping only the active group expanded
 
@@ -116,6 +134,9 @@ pixel-bar/
 - `sessions` — Access recently closed tabs
 - `storage` — Persist settings, pinned-in-group state, and custom tab names
 - `sidePanel` — Use Chrome's Side Panel API
+
+### Optional Permissions (granted on first use of Clear Site Data)
 - `browsingData` — Clear site data (cache, cookies, storage) for the active tab's origin
-- `scripting` — Execute sessionStorage.clear() on the active tab (sessionStorage is not in the browsingData API)
+- `scripting` — Execute sessionStorage/indexedDB clearing on the active tab
+- `cookies` — Read and remove all cookies for a domain regardless of path
 - `host_permissions: <all_urls>` — Required for scripting access to any tab

@@ -4,6 +4,37 @@ All notable changes to Pixel Bar will be documented in this file.
 
 The format is based on [Keep a Changelog](https://keepachangelog.com/), and this project adheres to [Semantic Versioning](https://semver.org/).
 
+## [0.8.0] - 2026-03-24
+
+### Added
+- **Group Categories** — Organize tab groups into custom categories (e.g. "In Progress", "In Review", "Blocked")
+  - Create categories via "+ Category" toolbar button
+  - Drag tab groups onto categories to assign them
+  - Right-click group → "Move to Category" submenu
+  - Collapsible categories with rename and delete
+  - Drag categories to reorder
+  - Persists across restarts via name+color matching
+- **Focus Mode** — Click the ◎ icon on a group header to focus on it
+  - Focused group expands and moves to top
+  - All other groups and sections collapse and dim
+  - Native tab groups collapse too
+  - First tab in focused group is activated
+  - Exit via banner ✕ or clicking the focus icon again
+  - Auto-exits when focused group is closed
+- **Expandable saved groups** — Click to preview tabs (favicon + hostname) before restoring
+
+### Changed
+- **Clear site data permissions** — browsingData, scripting, cookies, and host permissions are now optional; Chrome prompts on first use
+- **Tab item icon layout** — Set-home button in left gutter, stray indicator badge on favicon, close button on the right
+- **Saved group counts** — Removed "tabs" suffix to match other count styles
+- **Cookie clearing** — Uses chrome.cookies API to remove all path-scoped cookies
+- **IndexedDB clearing** — Deletes databases directly via scripting for localhost/IP reliability
+
+### Fixed
+- **Saved group tab order** — Tabs now created sequentially to guarantee correct order
+- **Saved groups open at top** — Restored groups move to position 0 in the tab strip
+- **Tidy the Tabs reliability** — Added windowId fallback and improved retry logic for Sonoma compatibility
+
 ## [0.7.0] - 2026-03-13
 
 ### Changed
