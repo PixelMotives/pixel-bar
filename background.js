@@ -14,8 +14,11 @@ chrome.runtime.onInstalled.addListener(function() {
 
 // Try to open the side panel for a given window
 function tryOpenPanel(windowId) {
-  chrome.sidePanel.open({ windowId: windowId }).catch(function() {
-    // Silently ignore — window may not be ready
+  console.log("[Pixel Bar] tryOpenPanel called, windowId:", windowId);
+  chrome.sidePanel.open({ windowId: windowId }).then(function() {
+    console.log("[Pixel Bar] sidePanel.open succeeded");
+  }).catch(function(err) {
+    console.log("[Pixel Bar] sidePanel.open failed:", String(err));
   });
 }
 
@@ -24,11 +27,14 @@ function tryOpenPanel(windowId) {
 var startupHandled = false;
 
 chrome.runtime.onStartup.addListener(function() {
+  console.log("[Pixel Bar] onStartup fired");
   chrome.storage.local.get("pb_panel_open", function(data) {
+    console.log("[Pixel Bar] pb_panel_open:", data.pb_panel_open);
     if (!data.pb_panel_open) return;
 
     // Try immediately
     chrome.windows.getLastFocused(function(win) {
+      console.log("[Pixel Bar] Trying to open panel, windowId:", win && win.id);
       if (win && win.id) {
         tryOpenPanel(win.id);
         startupHandled = true;
