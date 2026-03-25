@@ -15,10 +15,7 @@ chrome.runtime.onInstalled.addListener(function() {
 // Try to open the side panel for a given window
 function tryOpenPanel(windowId) {
   chrome.sidePanel.open({ windowId: windowId }).catch(function() {
-    // Chrome requires a user gesture to open the side panel.
-    // Show a badge to remind the user to click the icon.
-    chrome.action.setBadgeText({ text: "▸" });
-    chrome.action.setBadgeBackgroundColor({ color: "#89b4fa" });
+    // Chrome requires a user gesture — can't auto-open on startup
   });
 }
 
@@ -171,7 +168,6 @@ chrome.tabs.onActivated.addListener(function(activeInfo) {
 chrome.runtime.onConnect.addListener(function(port) {
   if (port.name === "pixel-bar-panel") {
     chrome.storage.local.set({ pb_panel_open: true });
-    chrome.action.setBadgeText({ text: "" });
     startupHandled = true;
     port.onDisconnect.addListener(function() {
       chrome.storage.local.set({ pb_panel_open: false });
