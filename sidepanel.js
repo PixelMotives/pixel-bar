@@ -1428,28 +1428,28 @@ function restoreSavedGroup(sg) {
       return;
     }
 
-    // Not open — create the tabs at the front and group them
-    var tabIds = new Array(sg.urls.length);
-    var remaining = sg.urls.length;
-    sg.urls.forEach(function(url, i) {
-      chrome.tabs.create({ url: url, active: false, index: i }, function(tab) {
-        tabIds[i] = tab.id;
-        remaining--;
-        if (remaining === 0) {
-          chrome.tabs.group({ tabIds: tabIds }, function(groupId) {
-            chrome.tabGroups.update(groupId, {
-              title: sg.name,
-              color: sg.color
-            });
-            // Activate first tab and tidy
-            chrome.tabs.update(tabIds[0], { active: true }, function() {
-              chrome.runtime.sendMessage({ action: "tidy-tab-bar", windowId: windowId });
-            });
-            scheduleRefresh();
+    // Not open — create tabs sequentially to preserve order
+    var tabIds = [];
+    var createNext = function(i) {
+      if (i >= sg.urls.length) {
+        chrome.tabs.group({ tabIds: tabIds }, function(groupId) {
+          chrome.tabGroups.update(groupId, {
+            title: sg.name,
+            color: sg.color
           });
-        }
+          chrome.tabs.update(tabIds[0], { active: true }, function() {
+            chrome.runtime.sendMessage({ action: "tidy-tab-bar", windowId: windowId });
+          });
+          scheduleRefresh();
+        });
+        return;
+      }
+      chrome.tabs.create({ url: sg.urls[i], active: false }, function(tab) {
+        tabIds.push(tab.id);
+        createNext(i + 1);
       });
-    });
+    };
+    createNext(0);
   });
 }
 
@@ -1540,24 +1540,23 @@ function restoreGroupSnapshotStep2(group, sg) {
       return;
     }
 
-    // Create only the truly missing tabs at the top of the group
-    var groupStartIndex = Math.min.apply(null, currentTabs.map(function(t) { return t.index; }));
-    var newTabIds = new Array(missingUrls.length);
-    var remaining = missingUrls.length;
-
-    missingUrls.forEach(function(url, i) {
-      chrome.tabs.create({ url: url, active: false, index: groupStartIndex + i }, function(tab) {
-        newTabIds[i] = tab.id;
-        remaining--;
-        if (remaining === 0) {
-          chrome.tabs.group({ tabIds: newTabIds, groupId: group.id }, function() {
-            chrome.tabs.query({ groupId: group.id }, function(updatedTabs) {
-              reorderGroupToSnapshot(group, sg, updatedTabs);
-            });
+    // Create missing tabs sequentially to preserve order
+    var newTabIds = [];
+    var createNext = function(i) {
+      if (i >= missingUrls.length) {
+        chrome.tabs.group({ tabIds: newTabIds, groupId: group.id }, function() {
+          chrome.tabs.query({ groupId: group.id }, function(updatedTabs) {
+            reorderGroupToSnapshot(group, sg, updatedTabs);
           });
-        }
+        });
+        return;
+      }
+      chrome.tabs.create({ url: missingUrls[i], active: false }, function(tab) {
+        newTabIds.push(tab.id);
+        createNext(i + 1);
       });
-    });
+    };
+    createNext(0);
   });
 }
 
