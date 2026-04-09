@@ -1397,14 +1397,28 @@ body {
   box-shadow: 0 2px 0 0 #89b4fa;
 }
 
+.category-drop-zone-wrap {
+  display: grid;
+  grid-template-rows: 0fr;
+  transition: grid-template-rows 0.25s ease;
+}
+
+.category-drop-zone-wrap.visible {
+  grid-template-rows: 1fr;
+}
+
+.category-drop-zone-wrap > .category-drop-zone {
+  overflow: hidden;
+}
+
 .category-drop-zone {
   margin: 6px;
   padding: 10px;
-  border: 2px dashed transparent;
+  border: 2px dashed #45475a;
   border-radius: 8px;
   text-align: center;
   font-size: 11px;
-  color: transparent;
+  color: #6c7086;
   transition: border-color 0.15s, background 0.15s, color 0.15s;
 }
 

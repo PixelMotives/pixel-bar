@@ -420,6 +420,8 @@ function renderTabGroups(groups, groupedTabs) {
 
   // Drop zone for removing groups from categories
   if (categories.length > 0) {
+    var dropZoneWrap = document.createElement("div");
+    dropZoneWrap.className = "category-drop-zone-wrap";
     var dropZone = document.createElement("div");
     dropZone.className = "category-drop-zone";
     dropZone.textContent = "Drop here to remove from category";
@@ -440,7 +442,19 @@ function renderTabGroups(groups, groupedTabs) {
         assignGroupToCategory(dragData.groupId, null);
       }
     });
-    container.appendChild(dropZone);
+    dropZoneWrap.appendChild(dropZone);
+    container.appendChild(dropZoneWrap);
+
+    // Show drop zone when dragging a group, hide on end
+    container.addEventListener("dragstart", function(e) {
+      if (e.target.closest(".group-header")) {
+        dropZoneWrap.classList.add("visible");
+      }
+    });
+    container.addEventListener("dragend", function() {
+      dropZoneWrap.classList.remove("visible");
+      dropZone.classList.remove("active");
+    });
   }
 
   // Render uncategorized groups
