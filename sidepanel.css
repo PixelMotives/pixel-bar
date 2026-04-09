@@ -93,9 +93,8 @@ body {
   display: flex;
   align-items: center;
   gap: 4px;
-  padding: 4px 10px;
-  margin-top: 2px;
-  background: #181825;
+  padding: 4px 10px 6px;
+  background: #242438;
   flex-shrink: 0;
 }
 
@@ -208,16 +207,13 @@ body {
   text-transform: uppercase;
   letter-spacing: 0.5px;
   color: #a6adc8;
-  background: #242438;
-  margin-top: 8px;
-  border-radius: 6px;
-  margin-left: 6px;
-  margin-right: 6px;
+  background: #303048;
+  margin-top: 2px;
   transition: background 0.15s;
 }
 
 .section-header:hover {
-  background: #2a2a42;
+  background: #363650;
 }
 
 .section-collapse {
@@ -282,6 +278,7 @@ body {
 
 .section-body {
   overflow: hidden;
+  padding: 4px 0;
 }
 
 /* ─── Tab Groups ─────────────────────────────────────────── */

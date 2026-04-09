@@ -422,6 +422,21 @@ function renderTabGroups(groups, groupedTabs) {
   uncategorized.forEach(function(group) {
     container.appendChild(renderSingleGroup(group, groupedTabs));
   });
+
+  // Drop on container background removes group from category
+  container.addEventListener("dragover", function(e) {
+    if (!dragData || dragData.type !== "group") return;
+    e.preventDefault();
+    e.dataTransfer.dropEffect = "move";
+  });
+  container.addEventListener("drop", function(e) {
+    if (!dragData || dragData.type !== "group") return;
+    // Only uncategorize if dropped directly on the container (not on a category)
+    if (e.target === container || e.target.closest("#tab-groups") === container && !e.target.closest(".category")) {
+      e.preventDefault();
+      assignGroupToCategory(dragData.groupId, null);
+    }
+  });
 }
 
 function renderSingleGroup(group, groupedTabs) {
@@ -1831,6 +1846,10 @@ function handleGroupDrop(e, targetGroup) {
   var rect = e.currentTarget.getBoundingClientRect();
   var midY = rect.top + rect.height / 2;
   var dropAbove = e.clientY < midY;
+
+  // If target group is in a category, assign dragged group to the same category
+  var targetCatId = groupCategoryMap[targetGroup.id] || null;
+  assignGroupToCategory(movedGroupId, targetCatId);
 
   // tabGroups.move uses tab indices, not group indices
   // Get the first tab of the target group to determine position
