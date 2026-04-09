@@ -146,6 +146,8 @@ function refresh() {
       rebuildPinnedInGroupIds(tabs);
       // Rebuild group-to-category map (handles restart recovery)
       rebuildGroupCategoryMap(groups);
+      // Rebuild collapsed groups (handles restart recovery via name+color)
+      rebuildCollapsedGroups(groups);
 
       var pinnedTabs = [];
       var groupedTabs = {};
@@ -1473,7 +1475,7 @@ function restoreSavedGroup(sg) {
         }
       });
       collapsedGroups[existing.id] = false;
-      chrome.storage.local.set(makeObj(STORAGE_KEYS.collapsedGroups, collapsedGroups));
+      persistCollapsedGroups();
       scheduleRefresh();
       return;
     }
@@ -2694,7 +2696,7 @@ function setupToolbar() {
         collapsedGroups[groupId] = true;
       }
     });
-    chrome.storage.local.set(makeObj(STORAGE_KEYS.collapsedGroups, collapsedGroups));
+    persistCollapsedGroups();
     // Collapse all expanded saved groups
     document.querySelectorAll(".saved-group-item:not(.collapsed)").forEach(function(el) {
       el.classList.add("collapsed");
@@ -2856,7 +2858,38 @@ function applySectionCollapseStates() {
 function toggleGroupCollapse(groupId, groupEl) {
   groupEl.classList.toggle("collapsed");
   collapsedGroups[groupId] = groupEl.classList.contains("collapsed");
-  chrome.storage.local.set(makeObj(STORAGE_KEYS.collapsedGroups, collapsedGroups));
+  persistCollapsedGroups();
+}
+
+function persistCollapsedGroups() {
+  // Persist by name+color for cross-restart recovery
+  chrome.tabGroups.query({ windowId: windowId }, function(groups) {
+    var entries = [];
+    groups.forEach(function(g) {
+      if (collapsedGroups[g.id]) {
+        entries.push({ name: g.title || "", color: g.color || "grey" });
+      }
+    });
+    chrome.storage.local.set(makeObj(STORAGE_KEYS.collapsedGroups, entries));
+  });
+}
+
+function rebuildCollapsedGroups(groups) {
+  var stored = collapsedGroups;
+  // If stored data is an array (name+color entries), rebuild the ID map
+  if (Array.isArray(stored)) {
+    collapsedGroups = {};
+    stored.forEach(function(entry) {
+      for (var i = 0; i < groups.length; i++) {
+        var g = groups[i];
+        if ((g.title || "") === entry.name && (g.color || "grey") === entry.color) {
+          collapsedGroups[g.id] = true;
+          break;
+        }
+      }
+    });
+  }
+  // If it's already an object with numeric keys, it's from the current session — leave it
 }
 
 // ─── Focus Mode ─────────────────────────────────────────────
@@ -2868,7 +2901,7 @@ function toggleFocusMode(groupId) {
   } else {
     focusedGroupId = groupId;
     collapsedGroups[groupId] = false;
-    chrome.storage.local.set(makeObj(STORAGE_KEYS.collapsedGroups, collapsedGroups));
+    persistCollapsedGroups();
     chrome.runtime.sendMessage({ action: "focus-group", groupId: groupId, windowId: windowId });
     // Activate first tab in the focused group
     chrome.tabs.query({ groupId: groupId }, function(tabs) {
