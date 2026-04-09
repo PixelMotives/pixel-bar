@@ -1375,6 +1375,9 @@ body {
 .category-body {
   overflow: hidden;
   min-height: 0;
+  background: rgba(137, 180, 250, 0.03);
+  border-left: 3px solid #89b4fa;
+  padding-left: 4px;
 }
 
 .category-body.drop-target {
