@@ -32,7 +32,6 @@ body {
 
 #view-nav {
   display: flex;
-  border-bottom: 1px solid #313244;
   background: #181825;
   flex-shrink: 0;
 }
@@ -79,7 +78,6 @@ body {
   flex-wrap: wrap;
   gap: 6px;
   padding: 10px 10px;
-  border-bottom: 1px solid #313244;
   align-items: center;
   flex-shrink: 0;
 }
@@ -95,7 +93,6 @@ body {
   align-items: center;
   gap: 4px;
   padding: 4px 10px;
-  border-bottom: 1px solid #313244;
   background: #181825;
   flex-shrink: 0;
 }
@@ -210,8 +207,7 @@ body {
   letter-spacing: 0.5px;
   color: #a6adc8;
   background: #181825;
-  border-top: 1px solid #313244;
-  border-bottom: 1px solid #313244;
+  margin-top: 8px;
   transition: background 0.15s;
 }
 
@@ -479,6 +475,8 @@ body {
   align-items: center;
   gap: 8px;
   padding: 7px 12px 7px 6px;
+  margin: 1px 6px;
+  border-radius: 6px;
   cursor: pointer;
   transition: background 0.15s;
   position: relative;
@@ -490,7 +488,6 @@ body {
 
 .tab-item.active {
   background: #45475a;
-  border-radius: 6px;
 }
 
 .tab-item .tab-favicon {
@@ -783,7 +780,6 @@ body {
 #bookmarks-toolbar {
   display: flex;
   padding: 8px 12px;
-  border-bottom: 1px solid #313244;
 }
 
 #bookmarks-collapse-all {
