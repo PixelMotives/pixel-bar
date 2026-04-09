@@ -278,7 +278,14 @@ body {
 
 .section-body {
   overflow: hidden;
-  padding: 4px 0;
+}
+
+.section-body > :first-child {
+  margin-top: 4px;
+}
+
+.section-body > :last-child {
+  margin-bottom: 4px;
 }
 
 /* ─── Tab Groups ─────────────────────────────────────────── */
@@ -290,6 +297,10 @@ body {
 /* Separate uncategorized groups from categories above */
 .category + .tab-group {
   margin-top: 8px;
+}
+
+#tab-groups + .section {
+  margin-top: 6px;
 }
 
 .tab-group {
