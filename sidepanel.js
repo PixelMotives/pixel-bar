@@ -357,7 +357,7 @@ function renderTabGroups(groups, groupedTabs) {
         else catHeader.classList.add("drop-below");
       } else if (dragData && dragData.type === "group") {
         // Dropping a group onto a category header assigns it
-        catHeader.classList.add("drop-below");
+        catHeader.classList.add("drop-accept");
       }
     });
     catHeader.addEventListener("dragleave", function() { clearDropIndicators(); });
@@ -1909,8 +1909,8 @@ function handleGroupDrop(e, targetGroup) {
 }
 
 function clearDropIndicators() {
-  document.querySelectorAll(".drop-above, .drop-below, .drop-target, .drop-left, .drop-right").forEach(function(el) {
-    el.classList.remove("drop-above", "drop-below", "drop-target", "drop-left", "drop-right");
+  document.querySelectorAll(".drop-above, .drop-below, .drop-target, .drop-left, .drop-right, .drop-accept").forEach(function(el) {
+    el.classList.remove("drop-above", "drop-below", "drop-target", "drop-left", "drop-right", "drop-accept");
   });
 }
 
