@@ -379,8 +379,19 @@ function renderTabGroups(groups, groupedTabs) {
         persistCategories();
         scheduleRefresh();
       } else if (dragData && dragData.type === "group") {
-        // Assign group to this category
-        assignGroupToCategory(dragData.groupId, cat.id);
+        // Assign group to this category and move to top
+        var movedGroupId = dragData.groupId;
+        assignGroupToCategory(movedGroupId, cat.id);
+        var firstGroup = catGroups_[0];
+        if (firstGroup) {
+          var firstTabs = groupedTabs[firstGroup.id] || [];
+          if (firstTabs.length > 0) {
+            chrome.tabGroups.move(movedGroupId, { index: firstTabs[0].index }, function() {
+              void chrome.runtime.lastError;
+              scheduleRefresh();
+            });
+          }
+        }
       }
     });
 
