@@ -1401,7 +1401,7 @@ body {
   display: grid;
   grid-template-rows: 0fr;
   transition: grid-template-rows 0.25s ease;
-  margin: 0 6px;
+  margin: 8px 6px;
 }
 
 .category-drop-zone-wrap.visible {
