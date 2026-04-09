@@ -1273,7 +1273,7 @@ body {
 .category {
   margin: 8px 6px 0;
   border-radius: 8px;
-  background: #2a2a42;
+  background: #303048;
   border-left: 3px solid #89b4fa;
   overflow: hidden;
 }
@@ -1376,6 +1376,7 @@ body {
 .category-body {
   overflow: hidden;
   min-height: 0;
+  padding-bottom: 6px;
 }
 
 .category-body.drop-target {
