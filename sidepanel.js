@@ -2701,6 +2701,21 @@ function setupToolbar() {
     document.querySelectorAll(".saved-group-item:not(.collapsed)").forEach(function(el) {
       el.classList.add("collapsed");
     });
+    // Collapse Ungrouped Tabs and Saved Groups sections
+    ["ungrouped", "saved-groups"].forEach(function(key) {
+      var header = document.querySelector("[data-section=\"" + key + "\"]");
+      if (header) {
+        header.closest(".section").classList.add("collapsed");
+        collapsedSections[key] = true;
+      }
+    });
+    chrome.storage.local.set(makeObj(STORAGE_KEYS.collapsedSections, collapsedSections));
+    // Collapse all categories
+    categories.forEach(function(cat) { cat.collapsed = true; });
+    persistCategories();
+    document.querySelectorAll(".category:not(.collapsed)").forEach(function(el) {
+      el.classList.add("collapsed");
+    });
   });
 
   // Merge duplicates button
