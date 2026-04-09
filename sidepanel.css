@@ -491,7 +491,6 @@ body {
 .tab-item.active {
   background: #45475a;
   border-radius: 6px;
-  margin: 1px 6px;
 }
 
 .tab-item .tab-favicon {
@@ -1367,7 +1366,10 @@ body {
 .category-body {
   overflow: hidden;
   min-height: 0;
-  padding-bottom: 4px;
+}
+
+.category-body > :last-child {
+  margin-bottom: 4px;
 }
 
 .category-body.drop-target {
