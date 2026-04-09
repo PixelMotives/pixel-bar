@@ -418,24 +418,34 @@ function renderTabGroups(groups, groupedTabs) {
     container.appendChild(catEl);
   });
 
+  // Drop zone for removing groups from categories
+  if (categories.length > 0) {
+    var dropZone = document.createElement("div");
+    dropZone.className = "category-drop-zone";
+    dropZone.textContent = "Drop here to remove from category";
+    dropZone.addEventListener("dragover", function(e) {
+      if (!dragData || dragData.type !== "group") return;
+      e.preventDefault();
+      e.dataTransfer.dropEffect = "move";
+      dropZone.classList.add("active");
+    });
+    dropZone.addEventListener("dragleave", function() {
+      dropZone.classList.remove("active");
+    });
+    dropZone.addEventListener("drop", function(e) {
+      e.preventDefault();
+      e.stopPropagation();
+      dropZone.classList.remove("active");
+      if (dragData && dragData.type === "group") {
+        assignGroupToCategory(dragData.groupId, null);
+      }
+    });
+    container.appendChild(dropZone);
+  }
+
   // Render uncategorized groups
   uncategorized.forEach(function(group) {
     container.appendChild(renderSingleGroup(group, groupedTabs));
-  });
-
-  // Drop on container background removes group from category
-  container.addEventListener("dragover", function(e) {
-    if (!dragData || dragData.type !== "group") return;
-    e.preventDefault();
-    e.dataTransfer.dropEffect = "move";
-  });
-  container.addEventListener("drop", function(e) {
-    if (!dragData || dragData.type !== "group") return;
-    // Only uncategorize if dropped directly on the container (not on a category)
-    if (e.target === container || e.target.closest("#tab-groups") === container && !e.target.closest(".category")) {
-      e.preventDefault();
-      assignGroupToCategory(dragData.groupId, null);
-    }
   });
 }
 

@@ -1397,6 +1397,23 @@ body {
   box-shadow: 0 2px 0 0 #89b4fa;
 }
 
+.category-drop-zone {
+  margin: 6px;
+  padding: 10px;
+  border: 2px dashed transparent;
+  border-radius: 8px;
+  text-align: center;
+  font-size: 11px;
+  color: transparent;
+  transition: border-color 0.15s, background 0.15s, color 0.15s;
+}
+
+.category-drop-zone.active {
+  border-color: #89b4fa;
+  background: rgba(137, 180, 250, 0.08);
+  color: #89b4fa;
+}
+
 /* ─── Focus Mode ──────────────────────────────────────────── */
 
 #tab-groups {
