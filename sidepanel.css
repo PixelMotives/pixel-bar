@@ -80,6 +80,7 @@ body {
   padding: 10px 10px;
   align-items: center;
   flex-shrink: 0;
+  background: #181825;
 }
 
 #pinned-tabs:not(:has(.pinned-tab)) {
@@ -93,6 +94,7 @@ body {
   align-items: center;
   gap: 4px;
   padding: 4px 10px;
+  margin-top: 2px;
   background: #181825;
   flex-shrink: 0;
 }
@@ -206,13 +208,16 @@ body {
   text-transform: uppercase;
   letter-spacing: 0.5px;
   color: #a6adc8;
-  background: #181825;
+  background: #242438;
   margin-top: 8px;
+  border-radius: 6px;
+  margin-left: 6px;
+  margin-right: 6px;
   transition: background 0.15s;
 }
 
 .section-header:hover {
-  background: #1e1e30;
+  background: #2a2a42;
 }
 
 .section-collapse {
