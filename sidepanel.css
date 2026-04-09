@@ -1413,13 +1413,18 @@ body {
 .category-drop-zone {
   overflow: hidden;
   min-height: 0;
-  padding: 10px;
-  border: 2px dashed #45475a;
+  padding: 0;
+  border: 0 dashed #45475a;
   border-radius: 8px;
   text-align: center;
   font-size: 11px;
   color: #6c7086;
-  transition: border-color 0.15s, background 0.15s, color 0.15s;
+  transition: all 0.25s ease;
+}
+
+.category-drop-zone-wrap.visible .category-drop-zone {
+  padding: 10px;
+  border-width: 2px;
 }
 
 .category-drop-zone.active {
