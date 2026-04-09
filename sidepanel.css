@@ -289,6 +289,16 @@ body {
   padding-top: 8px;
 }
 
+/* Separate uncategorized groups from categories above */
+#tab-groups > .tab-group {
+  margin-top: 8px;
+}
+
+#tab-groups > .tab-group:first-child,
+#tab-groups > .focus-banner + .tab-group {
+  margin-top: 0;
+}
+
 .tab-group {
   margin-bottom: 2px;
 }
@@ -1266,10 +1276,11 @@ body {
 /* ─── Categories ──────────────────────────────────────────── */
 
 .category {
-  margin: 6px 6px 0;
+  margin: 8px 6px 0;
   border-radius: 8px;
-  background: #1e1e30;
-  border: 1px solid #313244;
+  background: #242438;
+  border: 1px solid #45475a;
+  border-left: 3px solid #89b4fa;
   overflow: hidden;
 }
 
@@ -1284,13 +1295,11 @@ body {
   text-transform: uppercase;
   letter-spacing: 0.5px;
   color: #cdd6f4;
-  background: #242438;
-  border-left: 3px solid #89b4fa;
   transition: background 0.15s;
 }
 
 .category-header:hover {
-  background: #2a2a40;
+  background: rgba(255, 255, 255, 0.03);
 }
 
 .category-collapse {
