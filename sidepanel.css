@@ -1266,11 +1266,11 @@ body {
 /* ─── Categories ──────────────────────────────────────────── */
 
 .category {
-  margin-top: 8px;
-}
-
-.category:first-child {
-  margin-top: 0;
+  margin: 6px 6px 0;
+  border-radius: 8px;
+  background: #1e1e30;
+  border: 1px solid #313244;
+  overflow: hidden;
 }
 
 .category-header {
@@ -1284,15 +1284,13 @@ body {
   text-transform: uppercase;
   letter-spacing: 0.5px;
   color: #cdd6f4;
-  background: #1e1e2e;
-  border-top: 1px solid #313244;
-  border-bottom: 1px solid #313244;
+  background: #242438;
   border-left: 3px solid #89b4fa;
   transition: background 0.15s;
 }
 
 .category-header:hover {
-  background: #1e1e30;
+  background: #2a2a40;
 }
 
 .category-collapse {
@@ -1375,9 +1373,6 @@ body {
 .category-body {
   overflow: hidden;
   min-height: 0;
-  background: rgba(137, 180, 250, 0.03);
-  border-left: 3px solid #89b4fa;
-  padding-left: 4px;
 }
 
 .category-body.drop-target {
