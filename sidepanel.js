@@ -2303,14 +2303,31 @@ function clearSiteData(options) {
       });
     }
 
-    // Origin-scoped data via browsingData API
+    // Origin-scoped data via browsingData API (includes service workers)
     var browsingDataTypes = {};
-    if (opts.localStorage) browsingDataTypes.localStorage = true;
     if (opts.cacheStorage) browsingDataTypes.cacheStorage = true;
+    browsingDataTypes.serviceWorkers = true;
 
     if (Object.keys(browsingDataTypes).length > 0) {
       pending++;
       chrome.browsingData.remove({ origins: [origin] }, browsingDataTypes, done);
+    }
+
+    // localStorage + sessionStorage — clear directly via scripting
+    // (browsingData.remove with origins can be unreliable for localhost)
+    if (opts.localStorage || opts.sessionStorage) {
+      pending++;
+      chrome.scripting.executeScript({
+        target: { tabId: tabId },
+        func: function(clearLocal, clearSession) {
+          if (clearLocal) try { localStorage.clear(); } catch(e) {}
+          if (clearSession) try { sessionStorage.clear(); } catch(e) {}
+        },
+        args: [!!opts.localStorage, !!opts.sessionStorage]
+      }, function() {
+        void chrome.runtime.lastError;
+        done();
+      });
     }
 
     // IndexedDB — delete each database directly via scripting
@@ -2341,18 +2358,6 @@ function clearSiteData(options) {
     if (opts.cache) {
       pending++;
       chrome.browsingData.removeCache({}, done);
-    }
-
-    // Session storage via scripting (not in browsingData API)
-    if (opts.sessionStorage) {
-      pending++;
-      chrome.scripting.executeScript({
-        target: { tabId: tabId },
-        func: function() { sessionStorage.clear(); }
-      }, function() {
-        void chrome.runtime.lastError;
-        done();
-      });
     }
 
     // If nothing was selected, just reload
