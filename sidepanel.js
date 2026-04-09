@@ -2247,8 +2247,35 @@ function assignGroupToCategory(groupId, catId) {
   }
   chrome.tabGroups.query({ windowId: windowId }, function(groups) {
     persistGroupCategories(groups);
+    syncTabStripOrder(groups);
   });
   scheduleRefresh();
+}
+
+function syncTabStripOrder(groups) {
+  // Build desired order: categorized groups (by category order), then uncategorized
+  var ordered = [];
+  categories.forEach(function(cat) {
+    groups.forEach(function(g) {
+      if (groupCategoryMap[g.id] === cat.id) ordered.push(g.id);
+    });
+  });
+  groups.forEach(function(g) {
+    if (!groupCategoryMap[g.id]) ordered.push(g.id);
+  });
+
+  // Move groups sequentially to match desired order
+  var moveNext = function(i) {
+    if (i >= ordered.length) {
+      scheduleRefresh();
+      return;
+    }
+    chrome.tabGroups.move(ordered[i], { index: -1 }, function() {
+      void chrome.runtime.lastError;
+      moveNext(i + 1);
+    });
+  };
+  moveNext(0);
 }
 
 function enforcePinnedPosition(groupId) {
