@@ -2264,10 +2264,19 @@ function syncTabStripOrder(groups) {
     if (!groupCategoryMap[g.id]) ordered.push(g.id);
   });
 
-  // Move groups sequentially to match desired order
+  // Move groups sequentially to match desired order, then move ungrouped tabs to end
   var moveNext = function(i) {
     if (i >= ordered.length) {
-      scheduleRefresh();
+      // Move ungrouped tabs to the end
+      chrome.tabs.query({ windowId: windowId }, function(tabs) {
+        var ungrouped = tabs.filter(function(t) { return !t.pinned && t.groupId === -1; });
+        ungrouped.forEach(function(tab) {
+          chrome.tabs.move(tab.id, { index: -1 }, function() {
+            void chrome.runtime.lastError;
+          });
+        });
+        scheduleRefresh();
+      });
       return;
     }
     chrome.tabGroups.move(ordered[i], { index: -1 }, function() {
