@@ -1406,8 +1406,8 @@ body {
 
 .category-drop-zone-wrap.visible {
   grid-template-rows: 1fr;
-  margin-top: 6px;
-  margin-bottom: 6px;
+  margin-top: 8px;
+  margin-bottom: 8px;
 }
 
 .category-drop-zone {

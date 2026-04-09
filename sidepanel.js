@@ -439,7 +439,18 @@ function renderTabGroups(groups, groupedTabs) {
       e.stopPropagation();
       dropZone.classList.remove("active");
       if (dragData && dragData.type === "group") {
-        assignGroupToCategory(dragData.groupId, null);
+        var movedGroupId = dragData.groupId;
+        assignGroupToCategory(movedGroupId, null);
+        // Move to top of uncategorized area in the tab strip
+        if (uncategorized.length > 0) {
+          var firstUncatTabs = groupedTabs[uncategorized[0].id] || [];
+          if (firstUncatTabs.length > 0) {
+            chrome.tabGroups.move(movedGroupId, { index: firstUncatTabs[0].index }, function() {
+              void chrome.runtime.lastError;
+              scheduleRefresh();
+            });
+          }
+        }
       }
     });
     dropZoneWrap.appendChild(dropZone);
