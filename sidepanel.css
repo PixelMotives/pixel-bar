@@ -1266,7 +1266,11 @@ body {
 /* ─── Categories ──────────────────────────────────────────── */
 
 .category {
-  margin-bottom: 2px;
+  margin-top: 8px;
+}
+
+.category:first-child {
+  margin-top: 0;
 }
 
 .category-header {
@@ -1280,7 +1284,9 @@ body {
   text-transform: uppercase;
   letter-spacing: 0.5px;
   color: #cdd6f4;
-  background: #181825;
+  background: #1e1e2e;
+  border-top: 1px solid #313244;
+  border-bottom: 1px solid #313244;
   border-left: 3px solid #89b4fa;
   transition: background 0.15s;
 }
@@ -1311,6 +1317,9 @@ body {
   font-size: 10px;
   color: #6c7086;
   font-weight: 400;
+  height: 16px;
+  line-height: 16px;
+  margin-left: auto;
 }
 
 .category-actions {
@@ -1318,6 +1327,7 @@ body {
   gap: 4px;
   align-items: center;
   margin-left: auto;
+  height: 16px;
 }
 
 .category-header:hover .category-actions {
@@ -1334,8 +1344,11 @@ body {
   color: #6c7086;
   cursor: pointer;
   font-size: 12px;
-  padding: 2px 4px;
+  padding: 0 4px;
   border-radius: 3px;
+  height: 16px;
+  line-height: 16px;
+  overflow: hidden;
   transition: color 0.15s, background 0.15s;
 }
 
